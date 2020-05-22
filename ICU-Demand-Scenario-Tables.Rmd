@@ -107,14 +107,36 @@ covid_ip_days_df <- covid_ip_days_df %>%
          AdmitDate = date(ADMIT_DATE),
          DischDate = date(DSCH_DATE))
 
+# Determine if patient day is an ICU day based on site specific criteria and determine if patient is a COVID patient -----------
+# MSQ ICU timeline (provided by A. Dempsey on 5/22/20)
+# Before 5/7/20:
+# 5 East - PACU to ICU - 14 beds
+# 6 East - IMCU to ICU - 11 beds
+# 6 ICU - ICU - 8 beds
 
-# Determine if patient day is an ICU day based on site specific criteria and determine if patient is a COVID patient
-# MSSN & MSQ: Any bed type defined as critical care or critical care surge
+# 5/7/20 - 5/19/20:
+# 5 East - back to PACU - 0 beds
+# 2 East Rooms 208-217 convert to ICU
+# 6 East - IMCU to ICU - 11 beds
+# 6 ICU - ICU - 8 beds
+
+# 5/22/20 onward:
+# 5 East - back to PACU - 0 beds
+# 2 East - back to M/S - 0 beds
+# 6 East - 3 IMCU rooms 601, 606, and 608 convert to IMCU - 8 beds
+# 6 ICU - ICU - 8 beds
+
+# MSSN: Any bed type defined as critical care or critical care surge
 # Other sites: Accommodation code of intensive care or coronary care
 # COVID cohort COVID_FLAGS: Positive, PUI, Susc, and Resolved
 covid_ip_days_df <- covid_ip_days_df %>%
-  mutate(ICU = ((IP_SITE == "MSSN" | IP_SITE == "MSQ") & (CENSUS_BED_TYPE %in% "Critical Care" | CENSUS_BED_TYPE %in% "Critical Care Surge")) |
-           (IP_SITE != "MSSN" & IP_SITE != "MSQ" & (ACCOMMODATION_DESC %in% "INTENSIVE CARE" | ACCOMMODATION_DESC %in% "CORONARY CARE")),
+  mutate(ICU = (IP_SITE == "MSSN" & (CENSUS_BED_TYPE %in% "Critical Care" | CENSUS_BED_TYPE %in% "Critical Care Surge")) |
+           (IP_SITE != "MSSN" & IP_SITE != "MSQ" & (ACCOMMODATION_DESC %in% "INTENSIVE CARE" | ACCOMMODATION_DESC %in% "CORONARY CARE")) | (IP_SITE == "MSQ" & (CENSUS_DEPT == "MSQ 6 ICU" |
+                                                                                                                                                                  (CensusDate < as.Date("5/7/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 5 EAST") |
+                                                                                                                                                                  (CensusDate >= as.Date("5/7/20", format = "%m/%d/%y") & CensusDate <= as.Date("5/19/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 2 EAST" & CENSUS_ROOM %in% as.character(c(208:217))) |
+                                                                                                                                                                  (CensusDate < as.Date("5/22/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 6 EAST") |
+                                                                                                                                                                  (CensusDate >= as.Date("5/22/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 6 EAST" & CENSUS_ROOM %in% as.character(c(601, 606, 608)) == FALSE))),
+         
          COVIDPt = (COVID_FLAG %in% c("COVID-POSITIVE", "COVID-PUI", "COVID-SUSC", "COVID-RESOLVED")))
 
 
@@ -150,6 +172,7 @@ covid_census_peak_system <- ip_covid_daily_census_system %>%
 
 covid_census_peak_summary <- rbind(covid_census_peak_site, covid_census_peak_system)
 ```
+
 
 ```{r Format IP discharge data}
 # Format inpatient days dataframe ----------------------------------
@@ -187,10 +210,11 @@ ip_disch_df <- left_join(ip_disch_df, units_ref, by = c("Site" = "Site", "Unit D
 
 ```{r Susbet data frame based on unit and patient type and then summarize}
 # Inclusion criteria
+# Remove any peds encounters
 # Remove NICU and newborn discharges
 # Include any encounter with an ICU LOS > 0 OR any patient discharged from an adult med/surg unit
 ip_disch_subset <- ip_disch_df %>%
-  filter(NurseryNICU == "No" & AdmitType != "Newborn" & (`Icu Days Msx` > 0 | AdultMedSurg == "Yes"))
+  filter(PedsUnit == "No" & NurseryNICU == "No" & AdmitType != "Newborn" & (`Icu Days Msx` > 0 | AdultMedSurg == "Yes"))
 
 # Determine total discharges and ICU ADC for each site based on admit type ----------------------------
 # Summarize data for each site based on admit type
