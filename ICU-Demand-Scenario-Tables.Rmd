@@ -1,0 +1,497 @@
+---
+title: "ICU Census Scenarios"
+author: "HSO"
+date: "5/20/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r Install and load packages}
+# Code for analyzing historical COVID-19 IP census, admissions, and discharges ----------------------
+
+#Install and load necessary packages --------------------
+#install.packages("readraw_dfl")
+#install.packages("writeraw_dfl")
+#install.packages("ggplot2")
+#install.packages("lubridate")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("svDialogs")
+#install.packages("stringr")
+#install.packages("formattable")
+# install.packages("ggpubr")
+
+# Load libraries ------------------------
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
+library(reshape2)
+library(knitr)
+library(rmarkdown)
+library(kableExtra)
+```
+
+
+```{r Import raw data}
+# Set working directory and select raw data ----------------------------
+rm(list = ls())
+
+# Set working directory to script location
+script_path <- getwd()
+setwd(script_path)
+# Change working directory to folder with daily reports
+setwd("..\\DataMart")
+user_wd <- getwd()
+
+user_path <- paste0(user_wd, "\\*.*")
+
+covid_trend_start_date <- as.Date("3/1/20", format = "%m/%d/%y")
+
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
+
+# Import data tables from DataMart ---------------
+covid_ip_days_df_raw <- read.csv("COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv", stringsAsFactors = FALSE, na = c("", "NA"))
+
+# Import FY2019 IP discharge data
+setwd("..\\IP Discharge Data")
+
+ip_disch_df_raw <- read_excel("IP Disch FY2019 2020-05-13.xlsx", na = c("", "NA"),
+                                col_types = c("text", "text", "text", "text", "date", "date", "date",
+                                              "text", "text", "text", "text", "text", "text", "text",
+                                              "numeric", "numeric"))
+
+# Import analysis reference
+reference_file <- "Analysis Reference 2020-05-19.xlsx"
+ref_sheets <- excel_sheets(reference_file)
+
+ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
+
+site_ref <- ref_data[[1]]
+dispo_ref <- ref_data[[2]]
+service_line_ref <- ref_data[[3]]
+units_ref <- ref_data[[4]]
+
+```
+
+```{r Format COVID IP days raw data}
+# Format inpatient days dataframe ----------------------------------
+covid_ip_days_df <- covid_ip_days_df_raw
+
+# Convert dates from characters to dates
+covid_ip_days_df <- covid_ip_days_df %>%
+  mutate(CENSUS_DATE = as_datetime(CENSUS_DATE, tz = "America/New_York"),
+         ADMIT_DATE = as_datetime(ADMIT_DATE, tz = "America/New_York"),
+         DSCH_DATE = as_datetime(DSCH_DATE, tz = "America/New_York"))
+
+# Create columns with census, admit, and discharge dates
+covid_ip_days_df <- covid_ip_days_df %>%
+  mutate(CensusDate = date(CENSUS_DATE),
+         AdmitDate = date(ADMIT_DATE), 
+         DischDate = date(DSCH_DATE))
+
+
+# Determine if patient day is an ICU day based on site specific criteria and determine if patient is a COVID patient
+# MSSN & MSQ: Any bed type defined as critical care or critical care surge
+# Other sites: Accommodation code of intensive care or coronary care
+# COVID cohort COVID_FLAGS: Positive, PUI, Susc, and Resolved
+covid_ip_days_df <- covid_ip_days_df %>%
+  mutate(ICU = ((IP_SITE == "MSSN" | IP_SITE == "MSQ") & (CENSUS_BED_TYPE %in% "Critical Care" | CENSUS_BED_TYPE %in% "Critical Care Surge")) |
+           (IP_SITE != "MSSN" & IP_SITE != "MSQ" & (ACCOMMODATION_DESC %in% "INTENSIVE CARE" | ACCOMMODATION_DESC %in% "CORONARY CARE")),
+         COVIDPt = (COVID_FLAG %in% c("COVID-POSITIVE", "COVID-PUI", "COVID-SUSC", "COVID-RESOLVED")))
+
+
+# Subset data frame based on census date and remove MSSN
+covid_ip_days_df <- covid_ip_days_df %>%
+  filter(COVIDPt, CensusDate >= covid_trend_start_date)
+
+ip_covid_daily_census_site <- covid_ip_days_df %>%
+  filter(IP_SITE != "MSSN") %>%
+  group_by(IP_SITE, CensusDate) %>%
+  summarize(IPCOVIDCensus = n(), ICUCOVIDCensus = sum(ICU), NonICUCOVIDCensus = sum(!ICU))
+
+ip_covid_daily_census_system <- covid_ip_days_df %>%
+  filter(IP_SITE != "MSSN") %>%
+  group_by(CensusDate) %>%
+  summarize(IPCOVIDCensus = n(), ICUCOVIDCensus = sum(ICU), NonICUCOVIDCensus = sum(!ICU))
+
+# Create dataframes with peak census at each site and across the system
+covid_census_peak_site <- ip_covid_daily_census_site %>%
+  group_by(IP_SITE) %>%
+  summarize(PeakDate = CensusDate[which.max(IPCOVIDCensus)],
+            PeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
+            ICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
+            NonICUCOVIDCensus = NonICUCOVIDCensus[which.max(IPCOVIDCensus)])
+
+
+covid_census_peak_system <- ip_covid_daily_census_system %>%
+  summarize(IP_SITE = "MSHS",
+            PeakDate = CensusDate[which.max(IPCOVIDCensus)],
+            PeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
+            ICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
+            NonICUCOVIDCensus = NonICUCOVIDCensus[which.max(IPCOVIDCensus)])
+
+covid_census_peak_summary <- rbind(covid_census_peak_site, covid_census_peak_system)
+```
+
+```{r Format IP discharge data}
+# Format inpatient days dataframe ----------------------------------
+ip_disch_df <- ip_disch_df_raw
+
+# Create columns with census, admit, and discharge dates
+ip_disch_df <- ip_disch_df %>%
+  mutate(AdmitDate = date(`Admit Dt Src`), 
+         DischDate = date(`Dsch Dt Src`),
+         AdmitMonth = month(AdmitDate), 
+         DischMonth = month(DischDate))
+
+
+# Determine admit source
+ip_disch_df <- ip_disch_df %>%
+  mutate(AdmitType = ifelse(is.na(`Admit Type Desc Msx`) | str_detect(`Admit Type Desc Msx`, "(INFORMATION NOT AVAILABLE)"), "NonElective", 
+                            ifelse(str_detect(`Admit Type Desc Msx`, "ELECTIVE"), "Elective", 
+                            ifelse(str_detect(`Admit Type Desc Msx`, "NEWBORN"), "Newborn",
+                                   ifelse(str_detect(`Admit Type Desc Msx`, "(EMERGENCY)|(URGENT)"), "NonElective", "Other")))))
+
+# Crosswalk raw data with reference data -------------------------
+# Crosswalk sites
+ip_disch_df <- left_join(ip_disch_df, site_ref, by = c("Facility Msx" = "Facility Msx"))
+
+# Crosswalk service lines to include/exclude
+ip_disch_df <- left_join(ip_disch_df, service_line_ref[ , c("Service Desc Msx", "ServiceInclude")], by = c("Service Desc Msx" = "Service Desc Msx"))
+
+# If no discharge unit present, set to "Unknown"
+ip_disch_df[is.na(ip_disch_df$`Unit Desc Msx`), "Unit Desc Msx"] <- "Unknown"
+
+# Crosswalk unit to determine if it is an ICU, peds unit, nursery/NICU,
+ip_disch_df <- left_join(ip_disch_df, units_ref, by = c("Site" = "Site", "Unit Desc Msx" = "Unit Desc Msx"))
+
+```
+
+```{r Susbet data frame based on unit and patient type and then summarize}
+# Inclusion criteria
+# Remove NICU and newborn discharges
+# Include any encounter with an ICU LOS > 0 OR any patient discharged from an adult med/surg unit
+ip_disch_subset <- ip_disch_df %>%
+  filter(NurseryNICU == "No" & AdmitType != "Newborn" & (`Icu Days Msx` > 0 | AdultMedSurg == "Yes"))
+
+# Determine total discharges and ICU ADC for each site based on admit type ----------------------------
+# Summarize data for each site based on admit type
+ip_disch_admit_type_site_level <- ip_disch_subset %>%
+  group_by(Site, AdmitType) %>%
+  summarize(VolDisch = n(),
+            ICUDays = sum(`Icu Days Msx`)) %>%
+  ungroup()
+
+# Summarize data for each site across all admit types
+ip_disch_all_admits_site <- ip_disch_subset %>%
+  group_by(Site) %>%
+  summarize(AdmitType = "All",
+            VolDisch = n(),
+            ICUDays = sum(`Icu Days Msx`)) %>%
+  ungroup()
+
+# Bind data together
+ip_disch_site_summary <- rbind(ip_disch_admit_type_site_level, ip_disch_all_admits_site)
+ip_disch_site_summary <- ip_disch_site_summary[order(ip_disch_site_summary$Site), ]
+
+# Determine total discharges and ICU ADC for system based on admit type -----------------------------
+# Summarize data for each site based on admit type
+ip_disch_admit_type_system <- ip_disch_subset %>%
+  group_by(AdmitType) %>%
+  summarize(Site = "MSHS",
+            VolDisch = n(),
+            ICUDays = sum(`Icu Days Msx`)) %>%
+  ungroup()
+
+ip_disch_admit_type_system <- ip_disch_admit_type_system[ , c("Site", "AdmitType", "VolDisch", "ICUDays")]
+
+# Summarize data for each site across all admit types
+ip_disch_all_admits_system <- ip_disch_subset %>%
+  summarize(Site = "MSHS", 
+            AdmitType = "All",
+            VolDisch = n(),
+            ICUDays = sum(`Icu Days Msx`)) %>%
+  ungroup()
+
+# Bind data together
+ip_disch_system_summary <- rbind(ip_disch_admit_type_system, ip_disch_all_admits_system)
+
+# Calculate ICU ADC for each site and system
+ip_disch_site_summary <- ip_disch_site_summary %>%
+  mutate(ICUADC = ICUDays / 365)
+
+ip_disch_system_summary <- ip_disch_system_summary %>%
+  mutate(ICUADC = ICUDays / 365)
+
+# Bind site and system level data
+ip_disch_summary <- rbind(ip_disch_site_summary, ip_disch_system_summary)
+
+# Melt data frame to calculate percentage of elective and non-elective discharges ----------------------
+ip_disch_admit_type_percent <- dcast(ip_disch_summary[ , c("Site", "AdmitType", "VolDisch")],
+                                  Site ~ AdmitType, value.var = "VolDisch")
+
+ip_disch_admit_type_percent <- ip_disch_admit_type_percent %>%
+  mutate(Elective = Elective / All * 100, NonElective = NonElective / All * 100, All = All / All * 100)
+
+ip_disch_admit_type_percent <- melt(ip_disch_admit_type_percent, id.vars = "Site", variable.name = "AdmitType", value.name = "DischPerc")
+
+ip_disch_admit_type_percent$AdmitType <- as.character(ip_disch_admit_type_percent$AdmitType)
+
+# Bind with summary stats table
+ip_disch_summary <- left_join(ip_disch_summary, ip_disch_admit_type_percent, by = c("Site" = "Site", "AdmitType" = "AdmitType"))
+
+ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
+                                          "VolDisch", "DischPerc",
+                                          "ICUDays", "ICUADC")]
+
+
+```
+
+```{r Scale historical ICU ADC and COVID IP census data}
+
+# Scale ICU census at peak
+# scale_factors <- data.frame("Scale" = c(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.8, 0.9, 1.0))
+scale_factors <- data.frame("Scale" = c(0.25, 0.5, 0.75, 1.0))
+
+covid_icu_scenarios <- covid_census_peak_summary %>%
+  select(IP_SITE, ICUCensus)
+
+ip_icu_scenarios <- ip_disch_summary %>%
+  select(Site, ICUADC)
+
+scale_length <- nrow(scale_factors)
+covid_icu_length <- nrow(covid_icu_scenarios)
+ip_icu_length <- nrow(ip_icu_scenarios)
+
+# Replicate data frames
+scale_factors_covid <- (scale_factors[rep(rownames(scale_factors), covid_icu_length), ])
+scale_factors_covid <- data.frame("Scale" = scale_factors_covid)
+
+scale_factors_ip_icu <- (scale_factors[rep(rownames(scale_factors), ip_icu_length), ])
+scale_factors_ip_icu <- data.frame("Scale" = scale_factors_ip_icu)
+
+scale_factors_covid <- scale_factors_covid[order(scale_factors_covid$Scale), ]
+scale_factors_ip_icu <- scale_factors_ip_icu[order(scale_factors_ip_icu$Scale), ]
+
+covid_icu_scenarios <- covid_icu_scenarios[rep(rownames(covid_icu_scenarios), scale_length), ]
+covid_icu_scenarios = cbind(covid_icu_scenarios, Scale = scale_factors_covid)
+
+ip_icu_scenarios <- ip_icu_scenarios[rep(rownames(ip_icu_scenarios), scale_length), ]
+ip_icu_scenarios = cbind(ip_icu_scenarios, Scale = scale_factors_ip_icu)
+
+# Calculate census for different scenarios based on historical data and scale
+covid_icu_scenarios <- covid_icu_scenarios %>%
+  mutate(ScaledICUCensus = ICUCensus * Scale,
+         ScaleName = paste0(Scale*100, "% Peak"))
+
+ip_icu_scenarios <- ip_icu_scenarios %>%
+  mutate(ScaledICUCensus = ICUADC * Scale,
+         ScaleName = paste0(Scale*100, "% Historical"))
+
+# Set site and scale name to factors before casting
+covid_icu_scenarios$IP_SITE <- factor(covid_icu_scenarios$IP_SITE, levels = c("MSH", "MSQ", "MSB", "MSBI", "MSW", "MSM", "MSHS"), ordered = TRUE)
+
+covid_icu_scenarios$ScaleName <- factor(covid_icu_scenarios$ScaleName,
+                                   levels = c("25% Peak", "50% Peak", "75% Peak", "100% Peak"), ordered = TRUE)
+
+ip_icu_scenarios$Site <- factor(ip_icu_scenarios$Site, levels = c("MSH", "MSQ", "MSB", "MSBI", "MSW", "MSM", "MSHS"), ordered = TRUE)
+
+ip_icu_scenarios$ScaleName <- factor(ip_icu_scenarios$ScaleName,
+                                   levels = c("25% Historical", "50% Historical", "75% Historical", "100% Historical"), ordered = TRUE)
+
+# Cast data frame for kables
+covid_icu_scenarios_cast <-  dcast(covid_icu_scenarios, IP_SITE + ICUCensus ~ ScaleName, value.var = "ScaledICUCensus")
+covid_icu_scenarios_cast$IP_SITE <- as.character(covid_icu_scenarios_cast$IP_SITE)
+
+ip_icu_scenarios_cast <-  dcast(ip_icu_scenarios, Site + ICUADC ~ ScaleName, value.var = "ScaledICUCensus")
+ip_icu_scenarios_cast$Site <- as.character(ip_icu_scenarios_cast$Site)
+
+
+# Bind COVID scenarios with COVID census peak summary table
+covid_census_peak_summary_scenarios <- left_join(covid_census_peak_summary, covid_icu_scenarios_cast, by = c("IP_SITE" = "IP_SITE", "ICUCensus" = "ICUCensus"))
+
+# Bind ICU ADC scenarios with IP discharge summary table
+ip_disch_summary_scenarios <- left_join(ip_disch_summary, ip_icu_scenarios_cast, by = c("Site" = "Site", "ICUADC" = "ICUADC"))
+
+```
+
+```{r Custom function for subsetting data and creating kables}
+
+site_census_scenario_tables <- function(site) {
+  site <- site
+  
+  ip_icu_scenarios_site <- ip_disch_summary_scenarios %>%
+    filter(Site == site)
+  
+  ip_icu_scenarios_site$Site <- NULL
+  
+  covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
+    filter(IP_SITE == site)
+  
+  covid_disch_scenarios_site$IP_SITE <- NULL
+
+  kable(ip_icu_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC", 
+                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"), 
+      caption = paste(site, " ICU Census Projections")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
+  row_spec(row = 0, background = "#221f72", color = "white") %>%
+  row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
+  add_header_above(c("FY2019 Discharges" = 5, "ICU Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
+  
+  kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Census",
+                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"), 
+      caption = paste(site, " COVID-19 Census Projections")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+  row_spec(row = 0, background = "#221f72", color = "white") %>%
+  add_header_above(c("COVID-19 Peak Census" = 4, "COVID-19 Census Projection Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
+  
+  # print(ip_icu_table)
+  # 
+  # print(covid_census_table)
+  # 
+  
+ 
+  
+}
+```
+
+```{r Custom function for creating IP ICU projection table}
+icu_census_project <- function(site) {
+  site <- site
+  
+  ip_icu_scenarios_site <- ip_disch_summary_scenarios %>%
+    filter(Site == site)
+  
+  ip_icu_scenarios_site$Site <- NULL
+  
+  kable(ip_icu_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC", 
+                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"), 
+      caption = paste(site, " ICU Census Scenarios (Based on FY2019 Data)")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
+  row_spec(row = 0, background = "#221f72", color = "white") %>%
+  row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
+  add_header_above(c("FY2019 Discharges" = 5, "ICU Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
+  
+}
+
+
+```
+
+```{r Custom function for creating COVID-19 projection table}
+covid_census_project <- function(site) {
+  site <- site
+
+  covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
+    filter(IP_SITE == site)
+  
+  covid_disch_scenarios_site$IP_SITE <- NULL
+
+  kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Census",
+                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"), 
+      caption = paste(site, " COVID-19 ICU Census Scenarios")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+  row_spec(row = 0, background = "#221f72", color = "white") %>%
+  add_header_above(c("COVID-19 Peak Census" = 4, "COVID-19 Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
+}
+
+
+```
+
+
+## ICU Census Projections
+### MSHS
+*Excludes MSSN*
+```{r Create tables for MSHS}
+icu_census_project(site = "MSHS")
+
+covid_census_project(site = "MSHS")
+
+```
+
+
+### MSH
+```{r Create tables for MSH}
+icu_census_project(site = "MSH")
+
+covid_census_project(site = "MSH")
+
+```
+
+### MSQ
+```{r Create tables for MSQ}
+icu_census_project(site = "MSQ")
+
+covid_census_project(site = "MSQ")
+
+```
+
+### MSB
+```{r Create tables for MSB}
+icu_census_project(site = "MSB")
+
+covid_census_project(site = "MSB")
+
+```
+
+### MSBI
+```{r Create tables for MSBI}
+icu_census_project(site = "MSBI")
+
+covid_census_project(site = "MSBI")
+
+```
+
+### MSM
+```{r Create tables for MSM}
+icu_census_project(site = "MSM")
+
+covid_census_project(site = "MSM")
+
+```
+
+### MSW
+```{r Create tables for MSW}
+icu_census_project(site = "MSW")
+
+covid_census_project(site = "MSW")
+
+```
+
+## Data Sources and Methodology
+**Historical ICU Census Analysis:**</br>
+**Data Source:** FY2019 ICU ADC based on billing data for patients discharged from 1/1/2019-12/31/2019.</br>
+Elective and non-elective breakdown based on encounter admit type.</br>
+Analysis excludes all nursery and NICU encounters.</br>
+Analysis also excludes encounters discharged from psych, rehab, mother-baby, peds, and chemical dependency units unless the patient spent 1 or more days in an ICU.</br>
+
+**COVID-19 Census:**</br>
+**Data Source:** COVID patient registry maintained in Enterprise Data Mart using inpatient tables. Data pulled on 5/12/2020 10:20AM.</br>
+Analysis includes patients with COVID flags of COVID-POSITIVE, COVID-PUI, COVID-SUSC, and COVID-RESOLVED.</br>
+*ICU classifications:*</br>
+MSH, MSB, MSW, MSM, MSBI: Accommodation type of Intensive Care or Coronary Care.</br>
+MSQ: Census bed type of Critical Care or Critical Care Surge.</br>
+
+
+
