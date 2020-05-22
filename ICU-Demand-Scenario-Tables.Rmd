@@ -27,6 +27,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 #install.packages("stringr")
 #install.packages("formattable")
 # install.packages("ggpubr")
+# install.packages("rprojroot")
 
 # Load libraries ------------------------
 library(readxl)
@@ -43,39 +44,41 @@ library(reshape2)
 library(knitr)
 library(rmarkdown)
 library(kableExtra)
+
+```
+
+```{r Determine drive mapping}
+rm(list = ls())
+
+if (list.files("J://") == "Presidents") {
+  user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+} else {
+  user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+}
+
+# knitr::opts_knit$set(root.dir = user_directory)
 ```
 
 
 ```{r Import raw data}
 # Set working directory and select raw data ----------------------------
-rm(list = ls())
-
-# Set working directory to script location
-script_path <- getwd()
-setwd(script_path)
-# Change working directory to folder with daily reports
-setwd("..\\DataMart")
-user_wd <- getwd()
-
-user_path <- paste0(user_wd, "\\*.*")
 
 covid_trend_start_date <- as.Date("3/1/20", format = "%m/%d/%y")
 
 sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
 
 # Import data tables from DataMart ---------------
-covid_ip_days_df_raw <- read.csv("COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv", stringsAsFactors = FALSE, na = c("", "NA"))
+# covid_ip_days_df_raw <- read.csv(".\\DataMart\\COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv", stringsAsFactors = FALSE, na = c("", "NA"))
+covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
 
 # Import FY2019 IP discharge data
-setwd("..\\IP Discharge Data")
-
-ip_disch_df_raw <- read_excel("IP Disch FY2019 2020-05-13.xlsx", na = c("", "NA"),
+ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
                                 col_types = c("text", "text", "text", "text", "date", "date", "date",
                                               "text", "text", "text", "text", "text", "text", "text",
                                               "numeric", "numeric"))
 
 # Import analysis reference
-reference_file <- "Analysis Reference 2020-05-19.xlsx"
+reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-05-19.xlsx")
 ref_sheets <- excel_sheets(reference_file)
 
 ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
@@ -86,6 +89,7 @@ service_line_ref <- ref_data[[3]]
 units_ref <- ref_data[[4]]
 
 ```
+
 
 ```{r Format COVID IP days raw data}
 # Format inpatient days dataframe ----------------------------------
@@ -100,7 +104,7 @@ covid_ip_days_df <- covid_ip_days_df %>%
 # Create columns with census, admit, and discharge dates
 covid_ip_days_df <- covid_ip_days_df %>%
   mutate(CensusDate = date(CENSUS_DATE),
-         AdmitDate = date(ADMIT_DATE), 
+         AdmitDate = date(ADMIT_DATE),
          DischDate = date(DSCH_DATE))
 
 
@@ -153,16 +157,16 @@ ip_disch_df <- ip_disch_df_raw
 
 # Create columns with census, admit, and discharge dates
 ip_disch_df <- ip_disch_df %>%
-  mutate(AdmitDate = date(`Admit Dt Src`), 
+  mutate(AdmitDate = date(`Admit Dt Src`),
          DischDate = date(`Dsch Dt Src`),
-         AdmitMonth = month(AdmitDate), 
+         AdmitMonth = month(AdmitDate),
          DischMonth = month(DischDate))
 
 
 # Determine admit source
 ip_disch_df <- ip_disch_df %>%
-  mutate(AdmitType = ifelse(is.na(`Admit Type Desc Msx`) | str_detect(`Admit Type Desc Msx`, "(INFORMATION NOT AVAILABLE)"), "NonElective", 
-                            ifelse(str_detect(`Admit Type Desc Msx`, "ELECTIVE"), "Elective", 
+  mutate(AdmitType = ifelse(is.na(`Admit Type Desc Msx`) | str_detect(`Admit Type Desc Msx`, "(INFORMATION NOT AVAILABLE)"), "NonElective",
+                            ifelse(str_detect(`Admit Type Desc Msx`, "ELECTIVE"), "Elective",
                             ifelse(str_detect(`Admit Type Desc Msx`, "NEWBORN"), "Newborn",
                                    ifelse(str_detect(`Admit Type Desc Msx`, "(EMERGENCY)|(URGENT)"), "NonElective", "Other")))))
 
@@ -221,7 +225,7 @@ ip_disch_admit_type_system <- ip_disch_admit_type_system[ , c("Site", "AdmitType
 
 # Summarize data for each site across all admit types
 ip_disch_all_admits_system <- ip_disch_subset %>%
-  summarize(Site = "MSHS", 
+  summarize(Site = "MSHS",
             AdmitType = "All",
             VolDisch = n(),
             ICUDays = sum(`Icu Days Msx`)) %>%
@@ -333,65 +337,65 @@ ip_disch_summary_scenarios <- left_join(ip_disch_summary, ip_icu_scenarios_cast,
 
 site_census_scenario_tables <- function(site) {
   site <- site
-  
+
   ip_icu_scenarios_site <- ip_disch_summary_scenarios %>%
     filter(Site == site)
-  
+
   ip_icu_scenarios_site$Site <- NULL
-  
+
   covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
     filter(IP_SITE == site)
-  
+
   covid_disch_scenarios_site$IP_SITE <- NULL
 
   kable(ip_icu_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC", 
-                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"), 
+      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC",
+                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"),
       caption = paste(site, " ICU Census Projections")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
   row_spec(row = 0, background = "#221f72", color = "white") %>%
   row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
   add_header_above(c("FY2019 Discharges" = 5, "ICU Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
-  
+
   kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
       col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Census",
-                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"), 
+                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"),
       caption = paste(site, " COVID-19 Census Projections")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
   row_spec(row = 0, background = "#221f72", color = "white") %>%
   add_header_above(c("COVID-19 Peak Census" = 4, "COVID-19 Census Projection Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
-  
+
   # print(ip_icu_table)
-  # 
+  #
   # print(covid_census_table)
-  # 
-  
- 
-  
+  #
+
+
+
 }
 ```
 
 ```{r Custom function for creating IP ICU projection table}
 icu_census_project <- function(site) {
   site <- site
-  
+
   ip_icu_scenarios_site <- ip_disch_summary_scenarios %>%
     filter(Site == site)
-  
+
   ip_icu_scenarios_site$Site <- NULL
-  
+
   kable(ip_icu_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC", 
-                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"), 
+      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC",
+                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"),
       caption = paste(site, " ICU Census Scenarios (Based on FY2019 Data)")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
   row_spec(row = 0, background = "#221f72", color = "white") %>%
   row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
   add_header_above(c("FY2019 Discharges" = 5, "ICU Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
-  
+
 }
 
 
@@ -403,12 +407,12 @@ covid_census_project <- function(site) {
 
   covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
     filter(IP_SITE == site)
-  
+
   covid_disch_scenarios_site$IP_SITE <- NULL
 
   kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
       col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Census",
-                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"), 
+                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"),
       caption = paste(site, " COVID-19 ICU Census Scenarios")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
