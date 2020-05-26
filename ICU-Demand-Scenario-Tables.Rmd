@@ -56,7 +56,6 @@ if (list.files("J://") == "Presidents") {
   user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
 }
 
-# knitr::opts_knit$set(root.dir = user_directory)
 ```
 
 
@@ -69,7 +68,7 @@ sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B
 
 # Import data tables from DataMart ---------------
 # covid_ip_days_df_raw <- read.csv(".\\DataMart\\COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv", stringsAsFactors = FALSE, na = c("", "NA"))
-covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202005261012.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
 
 # Import FY2019 IP discharge data
 ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
@@ -147,30 +146,55 @@ covid_ip_days_df <- covid_ip_days_df %>%
 ip_covid_daily_census_site <- covid_ip_days_df %>%
   filter(IP_SITE != "MSSN") %>%
   group_by(IP_SITE, CensusDate) %>%
-  summarize(IPCOVIDCensus = n(), ICUCOVIDCensus = sum(ICU), NonICUCOVIDCensus = sum(!ICU))
+  summarize(IPCOVIDCensus = n(), ICUCOVIDCensus = sum(ICU), NonICUCOVIDCensus = sum(!ICU), NonICUVentCensus = sum(VENT_NON_ICU, na.rm = TRUE))
 
 ip_covid_daily_census_system <- covid_ip_days_df %>%
   filter(IP_SITE != "MSSN") %>%
   group_by(CensusDate) %>%
-  summarize(IPCOVIDCensus = n(), ICUCOVIDCensus = sum(ICU), NonICUCOVIDCensus = sum(!ICU))
+  summarize(IPCOVIDCensus = n(), ICUCOVIDCensus = sum(ICU), NonICUCOVIDCensus = sum(!ICU), NonICUVentCensus = sum(VENT_NON_ICU, na.rm = TRUE))
+```
 
+```{r Determine dates of peak IP and ICU census}
 # Create dataframes with peak census at each site and across the system
-covid_census_peak_site <- ip_covid_daily_census_site %>%
+covid_census_ip_peak_site <- ip_covid_daily_census_site %>%
   group_by(IP_SITE) %>%
-  summarize(PeakDate = CensusDate[which.max(IPCOVIDCensus)],
-            PeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
-            ICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
-            NonICUCOVIDCensus = NonICUCOVIDCensus[which.max(IPCOVIDCensus)])
+  summarize(IPPeakDate = CensusDate[which.max(IPCOVIDCensus)],
+            IPPeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
+            IPPeakNonICUCOVIDCensus = NonICUCOVIDCensus[which.max(IPCOVIDCensus)],
+            IPPeakICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
+            IPPeakNonICUVentCensus = NonICUVentCensus[which.max(IPCOVIDCensus)])
 
 
-covid_census_peak_system <- ip_covid_daily_census_system %>%
+covid_census_ip_peak_system <- ip_covid_daily_census_system %>%
   summarize(IP_SITE = "MSHS",
-            PeakDate = CensusDate[which.max(IPCOVIDCensus)],
-            PeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
-            ICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
-            NonICUCOVIDCensus = NonICUCOVIDCensus[which.max(IPCOVIDCensus)])
+            IPPeakDate = CensusDate[which.max(IPCOVIDCensus)],
+            IPPeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
+            IPPeakNonICUCOVIDCensus = NonICUCOVIDCensus[which.max(IPCOVIDCensus)],
+            IPPeakICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
+            IPPeakNonICUVentCensus = NonICUVentCensus[which.max(IPCOVIDCensus)])
 
-covid_census_peak_summary <- rbind(covid_census_peak_site, covid_census_peak_system)
+covid_census_ip_peak_summary <- rbind(covid_census_ip_peak_site, covid_census_ip_peak_system)
+
+# Determine date with highest ICU census
+covid_census_icu_peak_site <- ip_covid_daily_census_site %>%
+  group_by(IP_SITE) %>%
+  summarize(ICUPeakDate = CensusDate[which.max(ICUCOVIDCensus)],
+            ICUPeakIPCensus = IPCOVIDCensus[which.max(ICUCOVIDCensus)], 
+            ICUPeakNonICUCOVIDCensus = NonICUCOVIDCensus[which.max(ICUCOVIDCensus)],
+            ICUPeakICUCensus = ICUCOVIDCensus[which.max(ICUCOVIDCensus)],
+            IPPeakNonICUVentCensus = NonICUVentCensus[which.max(ICUCOVIDCensus)])
+
+covid_census_icu_peak_system <- ip_covid_daily_census_system %>%
+  summarize(IP_SITE = "MSHS",
+            ICUPeakDate = CensusDate[which.max(ICUCOVIDCensus)],
+            ICUPeakIPCensus = IPCOVIDCensus[which.max(ICUCOVIDCensus)], 
+            ICUPeakNonICUCOVIDCensus = NonICUCOVIDCensus[which.max(ICUCOVIDCensus)],
+            ICUPeakICUCensus = ICUCOVIDCensus[which.max(ICUCOVIDCensus)],
+            IPPeakNonICUVentCensus = NonICUVentCensus[which.max(ICUCOVIDCensus)])
+
+covid_census_icu_peak_summary <- rbind(covid_census_icu_peak_site, covid_census_icu_peak_system)
+
+compare_census_peaks <- left_join(covid_census_ip_peak_summary[ , c("IP_SITE", "IPPeakDate", "IPPeakIPCensus", "IPPeakICUCensus")], covid_census_icu_peak_summary[ , c("IP_SITE", "ICUPeakDate", "ICUPeakIPCensus", "ICUPeakICUCensus")], by = c("IP_SITE" = "IP_SITE"))
 ```
 
 
@@ -295,7 +319,7 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
 # scale_factors <- data.frame("Scale" = c(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.8, 0.9, 1.0))
 scale_factors <- data.frame("Scale" = c(0.25, 0.5, 0.75, 1.0))
 
-covid_icu_scenarios <- covid_census_peak_summary %>%
+covid_icu_scenarios <- covid_census_icu_peak_summary %>%
   select(IP_SITE, ICUCensus)
 
 ip_icu_scenarios <- ip_disch_summary %>%
