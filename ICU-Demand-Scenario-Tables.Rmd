@@ -79,6 +79,9 @@ ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disc
                                               "text", "text", "text", "text", "text", "text", "text",
                                               "numeric", "numeric"))
 
+# Import FY2019 IP census room & board charge data
+rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges FY2019 2020-05-19.xlsx"))
+
 # Import analysis reference
 reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-05-19.xlsx")
 ref_sheets <- excel_sheets(reference_file)
@@ -347,6 +350,14 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
 
 
 ```
+
+```{r Preprocess room and board data to determine daily census}
+rb_charge_df <- rb_charge_df_raw
+
+sites_units <- unique(rb_charge_df[ , c("Hospital", "IPD")])
+
+```
+
 
 ```{r Scale historical ICU ADC and COVID IP census data}
 
