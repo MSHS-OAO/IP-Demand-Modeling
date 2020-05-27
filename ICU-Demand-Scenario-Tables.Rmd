@@ -64,6 +64,9 @@ if (list.files("J://") == "Presidents") {
 
 covid_trend_start_date <- as.Date("3/1/20", format = "%m/%d/%y")
 
+covid_steady_state_start <- as.Date("5/15/20", format = "%m/%d/%y")
+covid_steady_state_end <- as.Date("5/31/20", format = "%m/%d/%y")
+
 sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
 
 # Import data tables from DataMart ---------------
@@ -207,6 +210,26 @@ covid_census_icu_peak_system <- ip_covid_daily_census_system %>%
             NonCriticalCareCensus = NonCriticalCareCensus[which.max(ICUCOVIDCensus)])
 
 covid_census_icu_peak_summary <- rbind(covid_census_icu_peak_site, covid_census_icu_peak_system)
+```
+
+```{r Determine steady state COVID census}
+covid_census_steady_state_site <- ip_covid_daily_census_site %>%
+  filter(CensusDate >= covid_steady_state_start & CensusDate <= covid_steady_state_end) %>%
+  group_by(IP_SITE) %>%
+  summarize(AvgIPCensus = mean(IPCOVIDCensus),
+            AvgICUCensus = mean(ICUCOVIDCensus),
+            AvgNonICUVentCensus = mean(NonICUVentCensus),
+            AvgCriticalCareCensus = mean(CriticalCareCensus))
+
+covid_census_steady_state_system <- ip_covid_daily_census_system %>%
+  filter(CensusDate >= covid_steady_state_start & CensusDate <= covid_steady_state_end) %>%
+  summarize(IP_SITE = "MSHS", 
+            AvgIPCensus = mean(IPCOVIDCensus),
+            AvgICUCensus = mean(ICUCOVIDCensus),
+            AvgNonICUVentCensus = mean(NonICUVentCensus),
+            AvgCriticalCareCensus = mean(CriticalCareCensus))
+
+covid_census_steady_state_summary <- rbind(covid_census_steady_state_site, covid_census_steady_state_system)
 ```
 
 
@@ -393,50 +416,6 @@ ip_disch_summary_scenarios <- left_join(ip_disch_summary, ip_icu_scenarios_cast,
 
 ```
 
-```{r Custom function for subsetting data and creating kables}
-
-site_census_scenario_tables <- function(site) {
-  site <- site
-
-  ip_icu_scenarios_site <- ip_disch_summary_scenarios %>%
-    filter(Site == site)
-
-  ip_icu_scenarios_site$Site <- NULL
-
-  covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
-    filter(IP_SITE == site)
-
-  covid_disch_scenarios_site$IP_SITE <- NULL
-
-  kable(ip_icu_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Admit Type", "# Discharges", "% Discharges", "ICU Days", "ICU ADC",
-                   "25% Historical", "50% Historical", "75% Historical", "100% Historical"),
-      caption = paste(site, " ICU Census Projections")) %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
-  row_spec(row = 0, background = "#221f72", color = "white") %>%
-  row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
-  add_header_above(c("FY2019 Discharges" = 5, "ICU Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
-
-  kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Census",
-                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"),
-      caption = paste(site, " COVID-19 Census Projections")) %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  row_spec(row = 0, background = "#221f72", color = "white") %>%
-  add_header_above(c("COVID-19 Peak Census" = 4, "COVID-19 Census Projection Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
-
-  # print(ip_icu_table)
-  #
-  # print(covid_census_table)
-  #
-
-
-
-}
-```
-
 ```{r Custom function for creating IP ICU projection table}
 icu_census_project <- function(site) {
   site <- site
@@ -452,10 +431,36 @@ icu_census_project <- function(site) {
       caption = paste(site, " ICU Census Scenarios (Based on FY2019 Data)")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
-  row_spec(row = 0, background = "#221f72", color = "white") %>%
+  column_spec(column = c(2:5), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(6:9), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:9), background = "inherit", color = "inherit") %>%  
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
   row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
-  add_header_above(c("FY2019 Discharges" = 5, "ICU Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
+  add_header_above(c(" " = 1, "FY2019 Discharges" = 4, "ICU Census Scenarios" = 4), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
 
+}
+
+
+```
+
+```{r Custom function for creating COVID-19 steady state census table}
+covid_steady_state_census <- function(site) {
+  site <- site
+
+  covid_stead_state_census <- covid_census_steady_state_summary %>%
+    filter(IP_SITE == site)
+
+  covid_stead_state_census$IP_SITE <- NULL
+
+  kable(covid_stead_state_census, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census"),
+      caption = paste(site, " COVID-19 Steady State Census (Average of 05/15/20-Present)")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(1:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(1:4), background = "inherit", color = "inherit") %>%
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
+  add_header_above(c("COVID-19 Average Census" = 4), background = sinai_colors[1], color = "white", line = FALSE)
 }
 
 
@@ -471,24 +476,49 @@ covid_census_project <- function(site) {
   covid_disch_scenarios_site$IP_SITE <- NULL
 
   kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Census",
+      col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census",
                    "25% Peak", "50% Peak", "75% Peak", "100% Peak"),
       caption = paste(site, " COVID-19 ICU Census Scenarios")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  row_spec(row = 0, background = "#221f72", color = "white") %>%
-  add_header_above(c("COVID-19 Peak Census" = 4, "COVID-19 Census Scenarios" = 4), background = "#221f72", color = "white", line = FALSE)
+  column_spec(column = c(1, 5), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(1:5), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(6:9), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(1:9), background = "inherit", color = "inherit") %>%
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
+  add_header_above(c("COVID-19 Peak ICU Census" = 5, "COVID-19 Critical Care Census Scenarios" = 4), background = c(sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
 }
 
 
 ```
 
+## ICU Census Comparison
+Two methods implemented to determine peak ICU census for scenario testing:
+
+* Method 1: Utilize ICU census from date with highest COVID-19 IP census
+* Method 2: Utilize ICU census from date with highest COVID-19 ICU census
+```{r Create kable comparing two methods of calculating peak ICU census}
+kable(compare_covid_peak_summary, format = "html", escape = FALSE, align = "c", 
+      col.names = c("Site", "Date", "IP Census", "ICU Census", "Date", "IP Census", "ICU Census"),
+      caption = "ICU Census Methodology Comparison") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
+  row_spec(row = nrow(compare_covid_peak_summary), background = "lightgrey", bold = T) %>%
+  add_header_above(c("Site" = 1, "Method 1: Peak COVID-19 IP Census" = 3, "Method 2: Peak COVID-19 ICU Census" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+
+```
+**Method 2 provides more conservative ICU projections and will be used moving forward.**
 
 ## ICU Census Projections
 ### MSHS
 *Excludes MSSN*
 ```{r Create tables for MSHS}
 icu_census_project(site = "MSHS")
+
+covid_steady_state_census(site = "MSHS")
 
 covid_census_project(site = "MSHS")
 
@@ -499,6 +529,8 @@ covid_census_project(site = "MSHS")
 ```{r Create tables for MSH}
 icu_census_project(site = "MSH")
 
+covid_steady_state_census(site = "MSH")
+
 covid_census_project(site = "MSH")
 
 ```
@@ -506,6 +538,8 @@ covid_census_project(site = "MSH")
 ### MSQ
 ```{r Create tables for MSQ}
 icu_census_project(site = "MSQ")
+
+covid_steady_state_census(site = "MSQ")
 
 covid_census_project(site = "MSQ")
 
@@ -515,6 +549,8 @@ covid_census_project(site = "MSQ")
 ```{r Create tables for MSB}
 icu_census_project(site = "MSB")
 
+covid_steady_state_census(site = "MSB")
+
 covid_census_project(site = "MSB")
 
 ```
@@ -522,6 +558,8 @@ covid_census_project(site = "MSB")
 ### MSBI
 ```{r Create tables for MSBI}
 icu_census_project(site = "MSBI")
+
+covid_steady_state_census(site = "MSBI")
 
 covid_census_project(site = "MSBI")
 
@@ -531,6 +569,8 @@ covid_census_project(site = "MSBI")
 ```{r Create tables for MSM}
 icu_census_project(site = "MSM")
 
+covid_steady_state_census(site = "MSM")
+
 covid_census_project(site = "MSM")
 
 ```
@@ -538,6 +578,8 @@ covid_census_project(site = "MSM")
 ### MSW
 ```{r Create tables for MSW}
 icu_census_project(site = "MSW")
+
+covid_steady_state_census(site = "MSW")
 
 covid_census_project(site = "MSW")
 
@@ -547,15 +589,23 @@ covid_census_project(site = "MSW")
 **Historical ICU Census Analysis:**</br>
 **Data Source:** FY2019 ICU ADC based on billing data for patients discharged from 1/1/2019-12/31/2019.</br>
 Elective and non-elective breakdown based on encounter admit type.</br>
-Analysis excludes all nursery and NICU encounters.</br>
-Analysis also excludes encounters discharged from psych, rehab, mother-baby, peds, and chemical dependency units unless the patient spent 1 or more days in an ICU.</br>
+Analysis exclusions:
+
+* All encounters discharged from peds, nursery, and NICU.
+* All encounters discharged from psych, rehab, mother-baby, and chemical dependency units unless the patient spent 1 or more days in an ICU.
 
 **COVID-19 Census:**</br>
 **Data Source:** COVID patient registry maintained in Enterprise Data Mart using inpatient tables. Data pulled on 5/12/2020 10:20AM.</br>
 Analysis includes patients with COVID flags of COVID-POSITIVE, COVID-PUI, COVID-SUSC, and COVID-RESOLVED.</br>
 *ICU classifications:*</br>
 MSH, MSB, MSW, MSM, MSBI: Accommodation type of Intensive Care or Coronary Care.</br>
-MSQ: Census bed type of Critical Care or Critical Care Surge.</br>
+MSQ: Based on unit and bed history described below.</br>
+
+* MSQ 6 ICU: Always ICU
+* MSQ 5 East: PACU converted to ICU prior to 5/7/20
+* MSQ 6 East: ICU prior to 5/22/20 when rooms 601, 606, and 608 converted back to IMCU
+* MSQ 2 East: Rooms 208-217 converted to ICU from 5/7/20-5/19/20
+
 
 
 
