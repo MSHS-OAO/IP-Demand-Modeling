@@ -40,10 +40,20 @@ if (list.files("J://") == "Presidents") {
 
 # Import data tables from DataMart ---------------
 # Import FY2019 IP discharge data
-ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
+ip_disch_2019_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
                               col_types = c("text", "text", "text", "text", "date", "date", "date",
                                             "text", "text", "text", "text", "text", "text", "text",
                                             "numeric", "numeric"))
+
+# Import Jan-Feb 2020 IP discharge data
+ip_disch_2020_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch Jan-Feb20 2020-06-02.xlsx"), na = c("", "NA"),
+                                   col_types = c("text", "text", "text", "text", "date", "date", "date",
+                                                 "text", "text", "text", "text", "text", "text", "text",
+                                                 "numeric", "numeric"))
+
+# Bind 2019 and 2020 IP discharge data
+ip_disch_df_raw <- rbind(ip_disch_2019_df_raw, ip_disch_2020_df_raw)
+# ip_disch_df_raw <- ip_disch_2019_df_raw
 
 # Import FY2019 IP census room & board charge data
 rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges FY2019 2020-05-19.xlsx"), na = c("", "NA"),
@@ -73,6 +83,8 @@ ip_disch_df <- ip_disch_df %>%
          DischDate = date(`Dsch Dt Src`),
          AdmitMonth = month(AdmitDate),
          DischMonth = month(DischDate))
+
+elapsed_days <- as.numeric(max(ip_disch_df$DischDate) - min(ip_disch_df$DischDate) + 1)
 
 
 # Determine admit source
@@ -148,10 +160,10 @@ ip_disch_system_summary <- rbind(ip_disch_admit_type_system, ip_disch_all_admits
 
 # Calculate ICU ADC for each site and system
 ip_disch_site_summary <- ip_disch_site_summary %>%
-  mutate(ICUADC = ICUDays / 365)
+  mutate(ICUADC = ICUDays / elapsed_days)
 
 ip_disch_system_summary <- ip_disch_system_summary %>%
-  mutate(ICUADC = ICUDays / 365)
+  mutate(ICUADC = ICUDays / elapsed_days)
 
 # Bind site and system level data
 ip_disch_summary <- rbind(ip_disch_site_summary, ip_disch_system_summary)
@@ -193,6 +205,29 @@ ip_enc_admit_type <- ip_disch_df %>%
 
 
 rb_charge_df <- left_join(rb_charge_df, ip_enc_admit_type, by = c("Encounter Number" = "Encounter No"))
+
+rb_charge_one_line <- rb_charge_df %>%
+  group_by(`Encounter Number`, Msmrn, Hospital, AdmitType) %>%
+  summarize(StartDate = min(CensusDate), EndDate = max(CensusDate))
+
+rb_charge_one_line_summary <- rb_charge_one_line %>%
+  group_by(Hospital, AdmitType) %>%
+  summarize(Count = n())
+
+rb_charge_one_line_summary_2 <- rb_charge_one_line %>%
+  group_by(AdmitType) %>%
+  summarize(Count = n()) %>%
+  mutate(Percent = Count / sum(Count) * 100)
+
+rb_charge_one_line <- rb_charge_one_line %>%
+  mutate(Matched = !is.na(AdmitType))
+
+rb_charge_one_line_summary_3 <- rb_charge_one_line %>%
+  group_by(Hospital) %>%
+  summarize(MatchedEnc = sum(Matched), NotMatchedEnc = sum(!Matched),
+            MatchedPercent = MatchedEnc / (MatchedEnc + NotMatchedEnc) * 100,
+            NotMatchedPercent = NotMatchedEnc / (MatchedEnc + NotMatchedEnc) * 100)
+  
 
 # Assume encounters with missing admit types are non-elective
 rb_charge_df[is.na(rb_charge_df$AdmitType), "AdmitType"] <- "Unknown"
