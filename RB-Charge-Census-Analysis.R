@@ -55,7 +55,7 @@ ip_disch_2020_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP
 ip_disch_df_raw <- rbind(ip_disch_2019_df_raw, ip_disch_2020_df_raw)
 # ip_disch_df_raw <- ip_disch_2019_df_raw
 
-# Import FY2019 IP census room & board charge data
+# Import FY2019 IP room & board charge data
 rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges FY2019 2020-05-19.xlsx"), na = c("", "NA"),
                                col_types = c("text", "text", "text", "text", "date", "numeric"))
 
@@ -82,9 +82,10 @@ ip_disch_df <- ip_disch_df %>%
   mutate(AdmitDate = date(`Admit Dt Src`),
          DischDate = date(`Dsch Dt Src`),
          AdmitMonth = month(AdmitDate),
-         DischMonth = month(DischDate))
+         DischMonth = month(DischDate),
+         DischYear = year(DischDate))
 
-elapsed_days <- as.numeric(max(ip_disch_df$DischDate) - min(ip_disch_df$DischDate) + 1)
+ip_disch_elapsed_days <- as.numeric(max(ip_disch_df$DischDate) - min(ip_disch_df$DischDate) + 1)
 
 
 # Determine admit source
@@ -160,10 +161,10 @@ ip_disch_system_summary <- rbind(ip_disch_admit_type_system, ip_disch_all_admits
 
 # Calculate ICU ADC for each site and system
 ip_disch_site_summary <- ip_disch_site_summary %>%
-  mutate(ICUADC = ICUDays / elapsed_days)
+  mutate(ICUADC = ICUDays / ip_disch_elapsed_days)
 
 ip_disch_system_summary <- ip_disch_system_summary %>%
-  mutate(ICUADC = ICUDays / elapsed_days)
+  mutate(ICUADC = ICUDays / ip_disch_elapsed_days)
 
 # Bind site and system level data
 ip_disch_summary <- rbind(ip_disch_site_summary, ip_disch_system_summary)
@@ -194,10 +195,14 @@ rb_charge_df <- left_join(rb_charge_df, rb_charge_site_ref, by = c("Hospital" = 
 
 rb_charge_df <- left_join(rb_charge_df, rb_charge_ipd_ref, by = c("Site" = "Site", "IPD" = "IPD"))
 
-# Create columns for census date and census year
+# Create columns for census date, month, and year. Include days per month and whether or not the
+# census date is in a peak flu month (Nov-Mar)
 rb_charge_df <- rb_charge_df %>%
   mutate(CensusDate = date(`Service Date`), 
-         CensusYear = year(CensusDate))
+         CensusMonth = month(CensusDate),
+         CensusYear = year(CensusDate),
+         DaysInMonth = days_in_month(CensusDate),
+         FluMonth = ifelse(CensusMonth <= 3 | CensusMonth >= 11, 1, 0))
 
 # Crosswalk admission type from IP discharge data
 ip_enc_admit_type <- ip_disch_df %>%
@@ -206,127 +211,118 @@ ip_enc_admit_type <- ip_disch_df %>%
 
 rb_charge_df <- left_join(rb_charge_df, ip_enc_admit_type, by = c("Encounter Number" = "Encounter No"))
 
+# Check percent of encounters in R&B charges also present in IP discharge
 rb_charge_one_line <- rb_charge_df %>%
   group_by(`Encounter Number`, Msmrn, Hospital, AdmitType) %>%
-  summarize(StartDate = min(CensusDate), EndDate = max(CensusDate))
-
-rb_charge_one_line_summary <- rb_charge_one_line %>%
-  group_by(Hospital, AdmitType) %>%
-  summarize(Count = n())
-
-rb_charge_one_line_summary_2 <- rb_charge_one_line %>%
-  group_by(AdmitType) %>%
-  summarize(Count = n()) %>%
-  mutate(Percent = Count / sum(Count) * 100)
-
-rb_charge_one_line <- rb_charge_one_line %>%
+  summarize(StartDate = min(CensusDate), EndDate = max(CensusDate)) %>%
   mutate(Matched = !is.na(AdmitType))
 
-rb_charge_one_line_summary_3 <- rb_charge_one_line %>%
+rb_charge_one_line_summary <- rb_charge_one_line %>%
   group_by(Hospital) %>%
   summarize(MatchedEnc = sum(Matched), NotMatchedEnc = sum(!Matched),
             MatchedPercent = MatchedEnc / (MatchedEnc + NotMatchedEnc) * 100,
             NotMatchedPercent = NotMatchedEnc / (MatchedEnc + NotMatchedEnc) * 100)
-  
+
+rb_charge_one_line_summary_2 <- rb_charge_one_line %>%
+  group_by(AdmitType) %>%
+  summarize(Count = n()) %>%
+  mutate(Percent = Count / sum(Count))
+
+# 98% of encounters across system are matched between R&B and IP discharge data sets  
 
 # Assume encounters with missing admit types are non-elective
-rb_charge_df[is.na(rb_charge_df$AdmitType), "AdmitType"] <- "Unknown"
+rb_charge_df[is.na(rb_charge_df$AdmitType), "AdmitType"] <- "NonElective"
 
+rb_elapsed_days <- as.numeric(max(rb_charge_df$CensusDate) - min(rb_charge_df$CensusDate) + 1)
+
+# Subset R&B charge data to only include adult med surg units and exclude newborn admissions
 adult_med_surg_df <- rb_charge_df %>%
-  filter(AdultMedSurg == "Yes" & CensusYear == 2019)
+  filter(AdultMedSurg == "Yes" & AdmitType != "Newborn")
 
+# Determine ADC for each site based on admit type
 adult_med_surg_adc <- adult_med_surg_df %>%
   group_by(Site, AdmitType) %>%
   summarize(TotalDays = n(), ICUDays = sum(ICU == "Yes"),
-            ADC = TotalDays / 365, ICUADC = ICUDays / 365)
+            ADC = TotalDays / rb_elapsed_days, ICUADC = ICUDays / rb_elapsed_days)
 
-adult_med_surg_enc_df <- rb_charge_df %>%
-  filter(AdultMedSurg == "Yes") %>%
-  group_by(`Encounter Number`, Msmrn, Site, AdmitType) %>%
-  summarize(StartDate = min(CensusDate), EndDate = max(CensusDate),
-            StartYr = year(StartDate), EndYr = year(EndDate),
-            LOS = n(), ICULOS = sum(ICU == "Yes"))
+# Determine monthly ADC for each site
+adult_med_surg_monthly_adc <- adult_med_surg_df %>%
+  group_by(Site, CensusYear, CensusMonth, DaysInMonth, FluMonth) %>%
+  summarize(TotalDays = n(), ICUDays = sum(ICU == "Yes")) %>%
+  mutate(CensusDate = as.Date(paste0(CensusMonth, "/1/", CensusYear), format = "%m/%d/%Y"),
+    ADC = TotalDays / DaysInMonth, ICUADC = ICUDays / DaysInMonth)
 
-adult_med_surg_enc_summary <- adult_med_surg_enc_df %>%
-  filter(EndYr == 2019) %>%
-  group_by(Site, AdmitType) %>%
-  summarize(Encounters = n(), TotalDays = sum(LOS), ICUDays = sum(ICULOS),
-            ADC = TotalDays / 365, ICUADC = ICUDays / 365)
+adult_med_surg_flu_adc <- adult_med_surg_monthly_adc %>%
+  filter(CensusYear == 2019) %>%
+  group_by(Site, FluMonth) %>%
+  summarize(TotalDays = sum(TotalDays), ICUDays = sum(ICUDays), Days = sum(DaysInMonth)) %>%
+  mutate(ADC = TotalDays / Days, ICUADC = ICUDays / Days)
 
+adult_med_surg_flu_melt <- melt(adult_med_surg_flu_adc, id.vars = c("Site", "FluMonth"),
+                                measure.vars = c("ADC", "ICUADC"))
 
+adc_labels <- c(ADC = "Adult Med Surg ADC", ICUADC = "ICU ADC")
 
-adult_med_surg_enc_df_2 <- rb_charge_df %>%
-  filter(AdultMedSurg == "Yes" & CensusYear == 2019) %>%
-  group_by(`Encounter Number`, Msmrn, Site, AdmitType) %>%
-  summarize(StartDate = min(CensusDate), EndDate = max(CensusDate),
-            StartYr = year(StartDate), EndYr = year(EndDate),
-            LOS = n(), ICULOS = sum(ICU == "Yes"))
+ggplot(data = adult_med_surg_flu_melt, aes(x = Site, y = value, fill = factor(FluMonth))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = adc_labels)) +
+  labs(title = "2019 Adult Med Surg ADC Flu and Non-Flu Months", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Month", values = c("#221f72", "#00AEEF"), labels = c("No", "Yes")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
 
-adult_med_surg_enc_summary_2 <- adult_med_surg_enc_df_2 %>%
-  # filter(EndYr == 2019) %>%
-  group_by(Site, AdmitType) %>%
-  summarize(Encounters = n(), TotalDays = sum(LOS), ICUDays = sum(ICULOS),
-            ADC = TotalDays / 365, ICUADC = ICUDays / 365)
-
-adult_med_surg_enc_summary_3 <- adult_med_surg_enc_df_2 %>%
-  # filter(EndYr == 2019) %>%
+non_flu_mon_min_adc <- adult_med_surg_monthly_adc %>%
+  filter(CensusYear == 2019 & FluMonth == 0) %>%
   group_by(Site) %>%
-  summarize(Encounters = n(), TotalDays = sum(LOS), ICUDays = sum(ICULOS),
-            ADC = TotalDays / 365, ICUADC = ICUDays / 365)
+  summarize(LowestADCMonth = CensusDate[which.min(ADC)],
+            LowestADC = min(ADC),
+            LowestICUADC = ICUADC[which.min(ADC)])
 
+flu_mon_max_adc <- adult_med_surg_monthly_adc %>%
+  filter(CensusYear == 2019 & FluMonth == 1) %>%
+  group_by(Site) %>%
+  summarize(HighestADCMonth = CensusDate[which.max(ADC)],
+            HighestADC = max(ADC),
+            HighestICUADC = ICUADC[which.max(ADC)])
 
+flu_adc_gradient <- left_join(non_flu_mon_min_adc, flu_mon_max_adc, by = c("Site" = "Site"))
 
-# # Convert room and board to 1 line per patient
-# rb_enc_level <- rb_charge_df %>%
-#   group_by(`Encounter Number`, Msmrn) %>%
-#   summarize(StartDate = min(CensusDate), EndDate = max(CensusDate),
-#             StartYr = min(CensusYear), EndYr = max(CensusYear),
-#             LOS = n(), ICULOS = sum(ICU == "Yes"), AMSLOS = sum(AdultMedSurg == "Yes"))
-# 
-# # Subset IP disch data for crosswalk
-# ip_disch_crosswalk_subset <- ip_disch_df %>%
-#   select(`Encounter No`, Site, 
-#          `Admit Type Desc Msx`, AdmitType,
-#          `Service Desc Msx`, `Unit Desc Msx`, 
-#          AdmitDate, DischDate, 
-#          `Icu Days Msx`, `Los No Src`,
-#          ICU, AdultMedSurg, PedsUnit, NurseryNICU, Notes)
-# 
-# # Crosswalk R&B charges and IP data
-# crosswalk_df <- left_join(rb_enc_level, ip_disch_crosswalk_subset, by = c("Encounter Number" = "Encounter No"))
-# 
-# crosswalk_df <- crosswalk_df %>%
-#   mutate(AdmitYr = year(AdmitDate),
-#          SameLOS = LOS == `Los No Src`,
-#          SameICULOS = ICULOS == `Icu Days Msx`)
-# 
-# crosswalk_df <- crosswalk_df %>%
-#   filter(StartYr == 2019 & EndYr == 2019 & AdmitYr == 2019)
-# 
-# crosswalk_summary_2 <- crosswalk_df %>%
-#   filter(AdultMedSurg == "Yes") %>%
-#   group_by(Site) %>%
-#   summarize(SameLOS = sum(SameLOS), SameICULOS = sum(SameICULOS), Total = n(),
-#             PercentSameLOS = SameLOS / Total, PercentSameICULOS = SameICULOS / Total,
-#             ICUDaysRB = sum(ICULOS), ICUDaysIP = sum(`Icu Days Msx`),
-#             ICUADCRB = ICUDaysRB / 365, ICUADCIP = ICUDaysIP / 365)
-# 
-# msh_ip_enc_w_icu <- ip_disch_subset %>%
-#   filter(Site == "MSH" & `Icu Days Msx` > 0)
-# 
-# # Convert room and board to 1 line per patient
-# rb_enc_level_2 <- rb_charge_df %>%
-#   filter(AdultMedSurg == "Yes") %>%
-#   group_by(`Encounter Number`, Msmrn, Site) %>%
-#   summarize(StartDate = min(CensusDate), EndDate = max(CensusDate),
-#             StartYr = min(CensusYear), EndYr = max(CensusYear),
-#             LOS = n(), ICULOS = sum(ICU == "Yes"), AMSLOS = sum(AdultMedSurg == "Yes"))
-# 
-# msh_rb_enc_w_icu <- rb_enc_level_2 %>%
-#   filter(Site == "MSH" & ICULOS > 0 & StartYr == 2019 & EndYr == 2019)
-# 
-# output_list <- list("IP" = msh_ip_enc_w_icu, "RB" = msh_rb_enc_w_icu)
-# 
-# write_xlsx(output_list, "Compare MSH ICU ADC.xlsx")
+flu_adc_gradient <- flu_adc_gradient %>%
+  mutate(ADCDiff = HighestADC - LowestADC,
+         ICUADCDiff = HighestICUADC - LowestICUADC)
 
+flu_adc_gradient_melt <- melt(flu_adc_gradient, id.vars = "Site",
+                              measure.vars = c("LowestADC", "LowestICUADC",
+                                               "HighestADC", "HighestICUADC"))
 
+flu_adc_gradient_melt <- flu_adc_gradient_melt %>%
+  mutate(CensusType = ifelse(variable == "LowestADC" | variable == "HighestADC", "ADC", "ICUADC"),
+         ScenarioType = ifelse(variable == "LowestADC" | variable == "LowestICUADC", "Lowest Non-Flu", "Highest Flu"))
+
+ggplot(data = flu_adc_gradient_melt, aes(x = Site, y = value, fill = factor(ScenarioType))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(CensusType ~ ., scales = "free", labeller = labeller(CensusType = adc_labels)) +
+  labs(title = "2019 ADC Based on Lowest Non-Flu and Highest Flu Months", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = NULL, values = c("#221f72", "#00AEEF")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
