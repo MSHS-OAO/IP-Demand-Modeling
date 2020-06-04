@@ -69,3 +69,5 @@ for (k in 1:length(covid_census_file_list)) {
   }
   covid_census_compiled <- rbind(covid_census_compiled, new_df)
 }
+
+# Next steps - remove duplicates, export to excel
