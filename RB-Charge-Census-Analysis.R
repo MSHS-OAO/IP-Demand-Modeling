@@ -187,6 +187,35 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
                                           "VolDisch", "DischPerc",
                                           "ICUDays", "ICUADC")]
 
+# IP Disch for FY 2019
+ip_disch_subset_2019 <- ip_disch_df %>%
+  filter(DischYear == 2019 & PedsUnit == "No" & NurseryNICU == "No" & AdmitType != "Newborn" & (`Icu Days Msx` > 0 | AdultMedSurg == "Yes"))
+
+# Summarize data for each site based on admit type
+ip_disch_admit_type_site_level_2019 <- ip_disch_subset_2019 %>%
+  group_by(Site, AdmitType) %>%
+  summarize(VolDisch = n(),
+            ICUDays = sum(`Icu Days Msx`)) %>%
+  ungroup()
+
+# Summarize data for each site across all admit types
+ip_disch_all_admits_site_2019 <- ip_disch_subset_2019 %>%
+  group_by(Site) %>%
+  summarize(AdmitType = "All",
+            VolDisch = n(),
+            ICUDays = sum(`Icu Days Msx`)) %>%
+  ungroup()
+
+# Bind data together
+ip_disch_site_summary_2019 <- rbind(ip_disch_admit_type_site_level_2019, ip_disch_all_admits_site_2019)
+ip_disch_site_summary_2019 <- ip_disch_site_summary_2019[order(ip_disch_site_summary_2019$Site), ]
+
+# Calculate ICU ADC for each site and system
+ip_disch_site_summary_2019 <- ip_disch_site_summary_2019 %>%
+  mutate(ICUADC = ICUDays / 365)
+
+
+
 # Calculate daily census using room and board charges ----------------
 rb_charge_df <- rb_charge_df_raw
 
@@ -245,12 +274,77 @@ adult_med_surg_adc <- adult_med_surg_df %>%
   summarize(TotalDays = n(), ICUDays = sum(ICU == "Yes"),
             ADC = TotalDays / rb_elapsed_days, ICUADC = ICUDays / rb_elapsed_days)
 
+adult_med_surg_adc_2019 <- adult_med_surg_df %>%
+  filter(CensusYear == 2019) %>%
+  group_by(Site, AdmitType) %>%
+  summarize(TotalDays = n(), ICUDays = sum(ICU == "Yes"),
+            ADC = TotalDays / 365, ICUADC = ICUDays / 365)
+
 # Determine monthly ADC for each site
 adult_med_surg_monthly_adc <- adult_med_surg_df %>%
   group_by(Site, CensusYear, CensusMonth, DaysInMonth, FluMonth) %>%
   summarize(TotalDays = n(), ICUDays = sum(ICU == "Yes")) %>%
   mutate(CensusDate = as.Date(paste0(CensusMonth, "/1/", CensusYear), format = "%m/%d/%Y"),
     ADC = TotalDays / DaysInMonth, ICUADC = ICUDays / DaysInMonth)
+
+adult_med_surg_monthly_adc_melt <- melt(adult_med_surg_monthly_adc,
+                                        id.vars = c("Site", "CensusDate", "FluMonth"),
+                                        measure.vars = c("ADC", "ICUADC"))
+
+# Plot ADC for each site by month
+ggplot(data = adult_med_surg_monthly_adc_melt[adult_med_surg_monthly_adc_melt$Site == "MSH", ], aes(x = CensusDate, y = value, fill = factor(FluMonth))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = adc_labels)) +
+  labs(title = "MSH Adult Med Surg ADC Flu and Non-Flu Months", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Month", values = c("#221f72", "#00AEEF"), labels = c("No", "Yes")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
+
+ggplot(data = adult_med_surg_monthly_adc_melt[adult_med_surg_monthly_adc_melt$Site == "MSQ", ], aes(x = CensusDate, y = value, fill = factor(FluMonth))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = adc_labels)) +
+  labs(title = "MSQ Adult Med Surg ADC Flu and Non-Flu Months", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Month", values = c("#221f72", "#00AEEF"), labels = c("No", "Yes")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
+
+ggplot(data = adult_med_surg_monthly_adc_melt[adult_med_surg_monthly_adc_melt$Site == "MSW", ], aes(x = CensusDate, y = value, fill = factor(FluMonth))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = adc_labels)) +
+  labs(title = "MSW Adult Med Surg ADC Flu and Non-Flu Months", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Month", values = c("#221f72", "#00AEEF"), labels = c("No", "Yes")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
 
 adult_med_surg_flu_adc <- adult_med_surg_monthly_adc %>%
   filter(CensusYear == 2019) %>%
