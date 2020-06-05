@@ -48,7 +48,7 @@ for (k in 1:length(covid_census_file_list)) {
   new_df <- covid_census_file_list[[k]]
   if (ncol(new_df) == 8) {
     new_df <- new_df %>%
-      mutate(`REPORT RUN` = date(`CENSUS DATE`),
+      mutate(CENSUS_DATE = `CENSUS DATE`,
              GROUP = ifelse(ICU == "EMERGENCY", "ED", ICU),
              HOSP_ADMSN_TIME = NA,
              ROOM_ID = NA,
@@ -59,15 +59,56 @@ for (k in 1:length(covid_census_file_list)) {
              BED_USE = NA,
              ACCOMMODATION_CODE = NA)
 
-    new_df <- new_df[ , c("MRN", "PAT_NAME", "PAT_ENC_CSN_ID",
+  } else {
+    new_df <- new_df %>%
+      mutate(CENSUS_DATE = as.POSIXct(paste(as.Date(`REPORT RUN`), " 23:59:00"), tz = "UTC"))
+    
+  }
+  
+  new_df <- new_df[ , c("MRN", "PAT_NAME", "PAT_ENC_CSN_ID",
                         "DEPARTMENT_NAME", "INFECTION_STATUS",  
-                        "HOSP_ADMSN_TIME", "REPORT RUN", "GROUP", "LOC_NAME",
+                        "HOSP_ADMSN_TIME", "CENSUS_DATE", "GROUP", "LOC_NAME",
                         "ROOM_ID", "ROOM_NAME", "BED_ID", "BED_LABEL",
                         "SERVICE GROUPER", "BED_USE", "ACCOMMODATION_CODE")]
-  } else {
-    new_df <- new_df
-  }
+  
   covid_census_compiled <- rbind(covid_census_compiled, new_df)
 }
 
-# Next steps - remove duplicates, export to excel
+# Remove duplicate entries
+covid_census_compiled <- covid_census_compiled[!duplicated(covid_census_compiled), ]
+
+# Sort COVID census by MRN, census date, and setting
+# Fix any encounters with missing GROUP -- maybe get rid of this?
+covid_census_compiled$GROUP[is.na(covid_census_compiled$GROUP)] <- ifelse(covid_census_compiled$DEPARTMENT_NAME[is.na(covid_census_compiled$GROUP)] == "MSQ ED DISCHARGE", "ED",
+                                                       "NON CRITICAL CARE")
+
+# Convert INFECTION_STATUS and GROUP to factors for easier sorting
+covid_census_compiled$INFECTION_STATUS <- factor(covid_census_compiled$INFECTION_STATUS,
+                                                 levels = c("COVID-19", "SUSC COVID", "PUI - COVID", "PUM - RESP"),
+                                                 ordered = TRUE)
+covid_census_compiled$GROUP <- factor(covid_census_compiled$GROUP,
+                                      levels = c("CRITICAL CARE", "NON CRITICAL CARE", "ED", NA),
+                                      ordered = TRUE)
+
+covid_census_compiled <- covid_census_compiled %>%
+  arrange(MRN, CENSUS_DATE, INFECTION_STATUS, GROUP)
+
+# Determine if MRN and date is duplicated
+covid_census_compiled <- covid_census_compiled %>%
+  mutate(DuplMRNDate = duplicated(paste(MRN, CENSUS_DATE)))
+
+# Remove any duplicate entries for MRN and date
+covid_census_compiled <- covid_census_compiled %>%
+  filter(DuplMRNDate == FALSE)
+
+covid_census_compiled$DuplMRNDate <- NULL
+
+# Export patient level census data to excel
+write_xlsx(covid_census_compiled, "COVID MRN Daily Census Export 2020-06-05 v2.xlsx")
+
+# Summarize data by site and date
+export_daily_mrn_covid_census <- covid_census_compiled %>%
+  group_by(LOC_NAME, CENSUS_DATE, INFECTION_STATUS) %>%
+  summarize(Census = n())
+
+
