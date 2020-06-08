@@ -48,9 +48,10 @@ for (k in 1:length(covid_census_file_list)) {
   new_df <- covid_census_file_list[[k]]
   if (ncol(new_df) == 8) {
     new_df <- new_df %>%
-      mutate(CENSUS_DATE = `CENSUS DATE`,
+      mutate(CENSUS_DATE = as.POSIXct(paste0(month(`CENSUS DATE`), "/", day(`CENSUS DATE`), "/", 
+                                             year(`CENSUS DATE`), " 23:59:00"), format = "%m/%d/%Y %H:%M:%S", tz = "UTC"),
              GROUP = ifelse(ICU == "EMERGENCY", "ED", ICU),
-             HOSP_ADMSN_TIME = NA,
+             HOSP_ADMSN_TIME = force_tz(as.POSIXct(NA), tz = "UTC"),
              ROOM_ID = NA,
              ROOM_NAME = NA,
              BED_ID = NA,
@@ -58,10 +59,11 @@ for (k in 1:length(covid_census_file_list)) {
              `SERVICE GROUPER` = NA,
              BED_USE = NA,
              ACCOMMODATION_CODE = NA)
-
+    
   } else {
     new_df <- new_df %>%
-      mutate(CENSUS_DATE = as.POSIXct(paste(as.Date(`REPORT RUN`), " 23:59:00"), tz = "UTC"))
+      mutate(CENSUS_DATE = as.POSIXct(paste(as.Date(`REPORT RUN`), " 23:59:00"), tz = "UTC"),
+             HOSP_ADMSN_TIME = force_tz(HOSP_ADMSN_TIME, tz = "UTC"))
     
   }
   
@@ -110,5 +112,4 @@ write_xlsx(covid_census_compiled, paste0("COVID MRN Daily Census Export ", Sys.D
 export_daily_mrn_covid_census <- covid_census_compiled %>%
   group_by(LOC_NAME, CENSUS_DATE, INFECTION_STATUS) %>%
   summarize(Census = n())
-
 
