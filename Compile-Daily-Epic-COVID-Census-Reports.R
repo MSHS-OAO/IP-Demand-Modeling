@@ -104,7 +104,7 @@ covid_census_compiled <- covid_census_compiled %>%
 covid_census_compiled$DuplMRNDate <- NULL
 
 # Export patient level census data to excel
-write_xlsx(covid_census_compiled, "COVID MRN Daily Census Export 2020-06-05 v2.xlsx")
+write_xlsx(covid_census_compiled, paste0("COVID MRN Daily Census Export ", Sys.Date(), ".xlsx"))
 
 # Summarize data by site and date
 export_daily_mrn_covid_census <- covid_census_compiled %>%
