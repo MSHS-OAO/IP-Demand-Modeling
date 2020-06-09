@@ -71,7 +71,7 @@ sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B
 
 # Import data tables from DataMart ---------------
 # covid_ip_days_df_raw <- read.csv(".\\DataMart\\COVID_IP_PATIENT_DAYS_DETAIL_202005121020.csv", stringsAsFactors = FALSE, na = c("", "NA"))
-covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202005261012.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202005312247.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
 
 # Import Epic daily COVID census
 epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-06-08.xlsx"))
@@ -213,88 +213,113 @@ epic_covid_census_subset <- epic_covid_census %>%
 
 ```
 
-```{r Crosswalk DataMart and Epic data to determine if each census day in DataMart is a COVID day}
-covid_census_crosswalk <- left_join(covid_ip_days_df, epic_covid_census_subset,
-                                    by = c("MRN" = "MRN", "CSN" = "PAT_ENC_CSN_ID", "CensusDate" = "CensusDate"))
+```{r Crosswalk DataMart and Epic data to determine if each census day in DataMart is a COVID day using DataMart as base}
+covid_census_crosswalk <- left_join(datamart_covid_census_subset, epic_covid_census_subset,
+                                    by = c("CSN" = "Encounter", "CensusDate" = "CensusDate"))
 
-test_match <- covid_census_crosswalk %>%
-  filter(COVIDDay == 1)
 
-test_nomatch <- covid_census_crosswalk %>%
-  filter(is.na(COVIDDay))
+covid_days_census <- covid_census_crosswalk %>%
+  filter(IP_SITE == "MSBI" | COVIDDay == 1) %>%
+  mutate(SiteMaster = ifelse(IP_SITE == "MSBI", "MSBI", Site))
 
-a <- test_match %>%
-  group_by(IP_SITE, CENSUS_DEPT, DEPARTMENT_NAME) %>%
-  summarize(Count = n())
+# Determine if census day was a critical care day
+covid_days_census <- covid_days_census %>%
+  mutate(ICUMaster = ifelse(DataMartICUDay | EpicICUDay, 1, 0),
+         CriticalCareDay = ifelse(ICUMaster %in% 1 | VENT_NON_ICU %in% 1, 1, 0))
+
+# Create daily COVID census, ICU day, vent days, and critical care days by site
+covid_daily_census_site <- covid_days_census %>%
+  group_by(SiteMaster, CensusDate) %>%
+  summarize(COVIDCensus = n(),
+            DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
+            EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
+            ICUCensus = sum(ICUMaster, na.rm = TRUE), 
+            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create daily COVID census, ICU day, vent days, and critical care days across system
+covid_daily_census_system <- covid_days_census %>%
+  group_by(CensusDate) %>%
+  summarize(SiteMaster = "MSHS", 
+            COVIDCensus = n(),
+            DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
+            EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
+            ICUCensus = sum(ICUMaster, na.rm = TRUE), 
+            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
+  ungroup()
+
+covid_daily_census_system <- covid_daily_census_system[ , c("SiteMaster", "CensusDate", 
+                                                            "COVIDCensus", "DMICUCensus", "EpicICUCensus",
+                                                            "ICUCensus", "VentNonICUCensus", "CriticalCareCensus")]
+
+covid_daily_census_summary <- rbind(covid_daily_census_site, covid_daily_census_system)
+
+# write_xlsx(covid_daily_census_summary, "Crosswalk Census Test.xlsx")
 
 ```
 
+```{r Crosswalk DataMart and Epic data to determine if each census day in DataMart is a COVID day using Epic as base}
+# covid_census_crosswalk_reverse <- left_join(epic_covid_census_subset, datamart_covid_census_subset, 
+#                                     by = c("MRN" = "MRN", "Encounter" = "CSN", "CensusDate" = "CensusDate"))
+# 
+# 
+# reverse_test <- covid_census_crosswalk_reverse %>%
+#   filter(is.na(IP_SITE) & CensusDate < as.Date("5/31/20", format = "%m/%d/%y") & GROUP != "ED")
+# 
+# reverse_test_site <- reverse_test %>%
+#   group_by(Site, CensusDate, EpicInfection) %>%
+#   summarize(Count = n())
+# 
+# covid_census_crosswalk_reverse2 <- left_join(epic_covid_census_subset, datamart_covid_census_subset, 
+#                                     by = c("Encounter" = "CSN", "CensusDate" = "CensusDate"))
+# 
+# 
+# reverse_test2 <- covid_census_crosswalk_reverse2 %>%
+#   filter(is.na(IP_SITE) & CensusDate < as.Date("5/31/20", format = "%m/%d/%y") & GROUP != "ED")
+# 
+# reverse_test_site2 <- reverse_test2 %>%
+#   group_by(Site, CensusDate, EpicInfection) %>%
+#   summarize(Count = n())
+#   
+# reverse_test3 <- covid_census_crosswalk_reverse2 %>%
+#   filter(CensusDate < as.Date("5/31/20", format = "%m/%d/%y") & GROUP != "ED") %>%
+#   group_by(Site, PATIENT_DAY) %>%
+#   summarize(Count = n())
 
+```
 
 ```{r Determine dates of peak IP and ICU census}
-# Compare ICU census using 2 methods - date with peak IP COVID census and date with peak ICU COVID census
-compare_covid_census_peak_site <- ip_covid_daily_census_site %>%
-  group_by(IP_SITE) %>%
-  summarize(IPPeakDate = CensusDate[which.max(IPCOVIDCensus)],
-            IPPeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
-            IPPeakICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
-            ICUPeakDate = CensusDate[which.max(ICUCOVIDCensus)],
-            ICUPeakIPCensus = IPCOVIDCensus[which.max(ICUCOVIDCensus)], 
-            ICUPeakICUCensus = ICUCOVIDCensus[which.max(ICUCOVIDCensus)])
+# Compare ICU census using 2 methods - date with peak IP COVID census and date with peak critical care COVID census
 
-compare_covid_census_peak_system <- ip_covid_daily_census_system %>%
-  group_by(IP_SITE = "MSHS") %>%
-  summarize(IPPeakDate = CensusDate[which.max(IPCOVIDCensus)],
-            IPPeakIPCensus = IPCOVIDCensus[which.max(IPCOVIDCensus)],
-            IPPeakICUCensus = ICUCOVIDCensus[which.max(IPCOVIDCensus)],
-            ICUPeakDate = CensusDate[which.max(ICUCOVIDCensus)],
-            ICUPeakIPCensus = IPCOVIDCensus[which.max(ICUCOVIDCensus)], 
-            ICUPeakICUCensus = ICUCOVIDCensus[which.max(ICUCOVIDCensus)])
+covid_census_peaks <- covid_daily_census_summary %>%
+  group_by(SiteMaster) %>%
+  summarize(PeakIPCensusDate = CensusDate[which.max(COVIDCensus)],
+            PeakIPCensus = COVIDCensus[which.max(COVIDCensus)],
+            PeakIPICUCensus = ICUCensus[which.max(COVIDCensus)],
+            PeakIPVentNonICUCensus = VentNonICUCensus[which.max(COVIDCensus)],
+            PeakIPCCCensus = CriticalCareCensus[which.max(COVIDCensus)],
+            
+            PeakCCCensusDate = CensusDate[which.max(CriticalCareCensus)],
+            PeakCCIPCensus = COVIDCensus[which.max(CriticalCareCensus)],
+            PeakCCICUCensus = ICUCensus[which.max(CriticalCareCensus)],
+            PeakCCVentNonICUCensus = VentNonICUCensus[which.max(CriticalCareCensus)],
+            PeakCCCensus = CriticalCareCensus[which.max(CriticalCareCensus)])
 
-compare_covid_peak_summary <- rbind(compare_covid_census_peak_site, compare_covid_census_peak_system)
+## Moving forward, use peak critical care census day for conservative analysis
 
-## Moving forward, use peak ICU census day for conservative analysis
-
-# Create dataframes with peak ICU census at each site and across the system
-covid_census_icu_peak_site <- ip_covid_daily_census_site %>%
-  group_by(IP_SITE) %>%
-  summarize(ICUPeakDate = CensusDate[which.max(ICUCOVIDCensus)],
-            IPCensus = IPCOVIDCensus[which.max(ICUCOVIDCensus)], 
-            ICUCensus = ICUCOVIDCensus[which.max(ICUCOVIDCensus)],
-            NonICUVentCensus = NonICUVentCensus[which.max(ICUCOVIDCensus)],
-            CriticalCareCensus = CriticalCareCensus[which.max(ICUCOVIDCensus)],
-            NonCriticalCareCensus = NonCriticalCareCensus[which.max(ICUCOVIDCensus)])
-
-covid_census_icu_peak_system <- ip_covid_daily_census_system %>%
-  summarize(IP_SITE = "MSHS",
-            ICUPeakDate = CensusDate[which.max(ICUCOVIDCensus)],
-            IPCensus = IPCOVIDCensus[which.max(ICUCOVIDCensus)],
-            ICUCensus = ICUCOVIDCensus[which.max(ICUCOVIDCensus)],
-            NonICUVentCensus = NonICUVentCensus[which.max(ICUCOVIDCensus)],
-            CriticalCareCensus = CriticalCareCensus[which.max(ICUCOVIDCensus)],
-            NonCriticalCareCensus = NonCriticalCareCensus[which.max(ICUCOVIDCensus)])
-
-covid_census_icu_peak_summary <- rbind(covid_census_icu_peak_site, covid_census_icu_peak_system)
 ```
 
 ```{r Determine steady state COVID census}
-covid_census_steady_state_site <- ip_covid_daily_census_site %>%
-  filter(CensusDate >= covid_steady_state_start & CensusDate <= covid_steady_state_end) %>%
-  group_by(IP_SITE) %>%
-  summarize(AvgIPCensus = mean(IPCOVIDCensus),
-            AvgICUCensus = mean(ICUCOVIDCensus),
-            AvgNonICUVentCensus = mean(NonICUVentCensus),
+covid_census_steady_state <- covid_daily_census_summary %>%
+  filter(CensusDate >= covid_steady_state_start) %>%
+  group_by(SiteMaster) %>%
+  summarize(AvgIPCensus = mean(COVIDCensus),
+            AvgICUCensus = mean(ICUCensus),
+            AvgVentNonICUCensus = mean(VentNonICUCensus),
             AvgCriticalCareCensus = mean(CriticalCareCensus))
 
-covid_census_steady_state_system <- ip_covid_daily_census_system %>%
-  filter(CensusDate >= covid_steady_state_start & CensusDate <= covid_steady_state_end) %>%
-  summarize(IP_SITE = "MSHS", 
-            AvgIPCensus = mean(IPCOVIDCensus),
-            AvgICUCensus = mean(ICUCOVIDCensus),
-            AvgNonICUVentCensus = mean(NonICUVentCensus),
-            AvgCriticalCareCensus = mean(CriticalCareCensus))
-
-covid_census_steady_state_summary <- rbind(covid_census_steady_state_site, covid_census_steady_state_system)
 ```
 
 
