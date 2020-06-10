@@ -82,25 +82,28 @@ covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATI
 # Import Epic daily COVID census
 epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-06-08.xlsx"))
 
-# # Import FY2019 IP discharge data
-# ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
-#                                 col_types = c("text", "text", "text", "text", "date", "date", "date",
-#                                               "text", "text", "text", "text", "text", "text", "text",
-#                                               "numeric", "numeric"))
-# 
+# Import FY2019 IP discharge data
+ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
+                                col_types = c("text", "text", "text", "text", "date", "date", "date",
+                                              "text", "text", "text", "text", "text", "text", "text",
+                                              "numeric", "numeric"))
+
 # # Import FY2019 IP census room & board charge data
 # rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges FY2019 2020-05-19.xlsx"))
 # 
-# # Import analysis reference
-# reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-05-19.xlsx")
-# ref_sheets <- excel_sheets(reference_file)
-# 
-# ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
-# 
-# site_ref <- ref_data[[1]]
-# dispo_ref <- ref_data[[2]]
-# service_line_ref <- ref_data[[3]]
-# units_ref <- ref_data[[4]]
+# Import analysis reference
+reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-05-27.xlsx")
+ref_sheets <- excel_sheets(reference_file)
+
+ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
+
+site_ref <- ref_data[[1]]
+dispo_ref <- ref_data[[2]]
+service_line_ref <- ref_data[[3]]
+ip_disch_units_ref <- ref_data[[4]]
+
+rb_charge_ipd_ref <- ref_data[[5]]
+rb_charge_site_ref <- ref_data[[6]]
 
 ```
 
@@ -378,7 +381,11 @@ ip_disch_df <- left_join(ip_disch_df, service_line_ref[ , c("Service Desc Msx", 
 ip_disch_df[is.na(ip_disch_df$`Unit Desc Msx`), "Unit Desc Msx"] <- "Unknown"
 
 # Crosswalk unit to determine if it is an ICU, peds unit, nursery/NICU,
-ip_disch_df <- left_join(ip_disch_df, units_ref, by = c("Site" = "Site", "Unit Desc Msx" = "Unit Desc Msx"))
+ip_disch_df <- left_join(ip_disch_df, ip_disch_units_ref, by = c("Site" = "Site", "Unit Desc Msx" = "Unit Desc Msx"))
+
+test <- ip_disch_df %>%
+  group_by(Site, `Service Desc Msx`, ServiceInclude, `Unit Desc Msx`, AdultMedSurg, PedsUnit, NurseryNICU) %>%
+  summarize(Count = n())
 
 ```
 
@@ -462,6 +469,7 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
 
 
 ```
+
 
 ```{r Preprocess room and board data to determine daily census}
 rb_charge_df <- rb_charge_df_raw
