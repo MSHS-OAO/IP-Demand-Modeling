@@ -315,7 +315,36 @@ covid_daily_census_reverse_system <- covid_daily_census_reverse_system[ , c("Sit
 
 covid_daily_census_reverse_summary <- rbind(covid_daily_census_reverse_site, covid_daily_census_reverse_system)
 
+# Create daily COVID census, ICU day, vent days, and critical care days by site
+covid_daily_census_reverse_site2 <- covid_days_census_reverse %>%
+  filter(GROUP != "ED") %>%
+  group_by(Site, CensusDate) %>%
+  summarize(COVIDCensus = n(),
+            DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
+            EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
+            ICUCensus = sum(ICUMaster, na.rm = TRUE), 
+            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
+  ungroup()
 
+# Create daily COVID census, ICU day, vent days, and critical care days across system
+covid_daily_census_reverse_system2 <- covid_days_census_reverse %>%
+  filter(GROUP != "ED") %>%
+  group_by(CensusDate) %>%
+  summarize(Site = "MSHS", 
+            COVIDCensus = n(),
+            DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
+            EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
+            ICUCensus = sum(ICUMaster, na.rm = TRUE), 
+            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
+  ungroup()
+
+covid_daily_census_reverse_system2 <- covid_daily_census_reverse_system2[ , c("Site", "CensusDate", 
+                                                            "COVIDCensus", "DMICUCensus", "EpicICUCensus",
+                                                            "ICUCensus", "VentNonICUCensus", "CriticalCareCensus")]
+
+covid_daily_census_reverse_summary2 <- rbind(covid_daily_census_reverse_site2, covid_daily_census_reverse_system2)
 
 ```
 
@@ -351,6 +380,19 @@ covid_census_peaks_reverse <- covid_daily_census_reverse_summary %>%
             PeakCCVentNonICUCensus = VentNonICUCensus[which.max(CriticalCareCensus)],
             PeakCCCensus = CriticalCareCensus[which.max(CriticalCareCensus)])
 
+covid_census_peaks_reverse2 <- covid_daily_census_reverse_summary2 %>%
+  group_by(Site) %>%
+  summarize(PeakIPCensusDate = CensusDate[which.max(COVIDCensus)],
+            PeakIPCensus = COVIDCensus[which.max(COVIDCensus)],
+            PeakIPICUCensus = ICUCensus[which.max(COVIDCensus)],
+            PeakIPVentNonICUCensus = VentNonICUCensus[which.max(COVIDCensus)],
+            PeakIPCCCensus = CriticalCareCensus[which.max(COVIDCensus)],
+            
+            PeakCCCensusDate = CensusDate[which.max(CriticalCareCensus)],
+            PeakCCIPCensus = COVIDCensus[which.max(CriticalCareCensus)],
+            PeakCCICUCensus = ICUCensus[which.max(CriticalCareCensus)],
+            PeakCCVentNonICUCensus = VentNonICUCensus[which.max(CriticalCareCensus)],
+            PeakCCCensus = CriticalCareCensus[which.max(CriticalCareCensus)])
 ## Moving forward, use peak critical care census day for conservative analysis
 
 ## Peak critical care census is similar whether DataMart or Epic is used as the base data set.
