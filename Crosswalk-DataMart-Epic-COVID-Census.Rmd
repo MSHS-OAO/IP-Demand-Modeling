@@ -261,32 +261,61 @@ covid_daily_census_summary <- rbind(covid_daily_census_site, covid_daily_census_
 ```
 
 ```{r Crosswalk DataMart and Epic data to determine if each census day in DataMart is a COVID day using Epic as base}
-# covid_census_crosswalk_reverse <- left_join(epic_covid_census_subset, datamart_covid_census_subset, 
-#                                     by = c("MRN" = "MRN", "Encounter" = "CSN", "CensusDate" = "CensusDate"))
-# 
-# 
-# reverse_test <- covid_census_crosswalk_reverse %>%
-#   filter(is.na(IP_SITE) & CensusDate < as.Date("5/31/20", format = "%m/%d/%y") & GROUP != "ED")
-# 
-# reverse_test_site <- reverse_test %>%
-#   group_by(Site, CensusDate, EpicInfection) %>%
-#   summarize(Count = n())
-# 
-# covid_census_crosswalk_reverse2 <- left_join(epic_covid_census_subset, datamart_covid_census_subset, 
-#                                     by = c("Encounter" = "CSN", "CensusDate" = "CensusDate"))
-# 
-# 
-# reverse_test2 <- covid_census_crosswalk_reverse2 %>%
-#   filter(is.na(IP_SITE) & CensusDate < as.Date("5/31/20", format = "%m/%d/%y") & GROUP != "ED")
-# 
-# reverse_test_site2 <- reverse_test2 %>%
-#   group_by(Site, CensusDate, EpicInfection) %>%
-#   summarize(Count = n())
-#   
-# reverse_test3 <- covid_census_crosswalk_reverse2 %>%
-#   filter(CensusDate < as.Date("5/31/20", format = "%m/%d/%y") & GROUP != "ED") %>%
-#   group_by(Site, PATIENT_DAY) %>%
-#   summarize(Count = n())
+covid_census_crosswalk_reverse <- left_join(epic_covid_census_subset, datamart_covid_census_subset,
+                                    by = c("Encounter" = "CSN", "CensusDate" = "CensusDate"))
+
+covid_census_crosswalk_reverse <- covid_census_crosswalk_reverse %>%
+  filter(CensusDate <= max(datamart_covid_census_subset$Census))
+
+reverse_test <- covid_census_crosswalk_reverse %>%
+  group_by(Site, GROUP, PATIENT_DAY) %>%
+  summarize(Count = n())
+
+msw_reverse_test <- covid_census_crosswalk_reverse %>%
+  filter(is.na(IP_SITE) & GROUP != "ED" & Site == "MSW")
+
+test <- covid_census_crosswalk_reverse %>%
+  filter(CensusDate < as.Date("4/4/20", format = "%m/%d/%y"))
+
+test_summary <- test %>%
+  group_by(Site, GROUP, PATIENT_DAY) %>%
+  summarize(Count = n())
+
+# Determine if census day was a critical care day
+covid_days_census_reverse <- covid_census_crosswalk_reverse %>%
+  mutate(ICUMaster = ifelse(DataMartICUDay | EpicICUDay, 1, 0),
+         CriticalCareDay = ifelse(ICUMaster %in% 1 | VENT_NON_ICU %in% 1, 1, 0))
+
+# Create daily COVID census, ICU day, vent days, and critical care days by site
+covid_daily_census_reverse_site <- covid_days_census_reverse %>%
+  group_by(Site, CensusDate) %>%
+  summarize(COVIDCensus = n(),
+            DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
+            EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
+            ICUCensus = sum(ICUMaster, na.rm = TRUE), 
+            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create daily COVID census, ICU day, vent days, and critical care days across system
+covid_daily_census_reverse_system <- covid_days_census_reverse %>%
+  group_by(CensusDate) %>%
+  summarize(Site = "MSHS", 
+            COVIDCensus = n(),
+            DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
+            EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
+            ICUCensus = sum(ICUMaster, na.rm = TRUE), 
+            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
+  ungroup()
+
+covid_daily_census_reverse_system <- covid_daily_census_reverse_system[ , c("Site", "CensusDate", 
+                                                            "COVIDCensus", "DMICUCensus", "EpicICUCensus",
+                                                            "ICUCensus", "VentNonICUCensus", "CriticalCareCensus")]
+
+covid_daily_census_reverse_summary <- rbind(covid_daily_census_reverse_site, covid_daily_census_reverse_system)
+
+
 
 ```
 
@@ -307,7 +336,26 @@ covid_census_peaks <- covid_daily_census_summary %>%
             PeakCCVentNonICUCensus = VentNonICUCensus[which.max(CriticalCareCensus)],
             PeakCCCensus = CriticalCareCensus[which.max(CriticalCareCensus)])
 
+
+covid_census_peaks_reverse <- covid_daily_census_reverse_summary %>%
+  group_by(Site) %>%
+  summarize(PeakIPCensusDate = CensusDate[which.max(COVIDCensus)],
+            PeakIPCensus = COVIDCensus[which.max(COVIDCensus)],
+            PeakIPICUCensus = ICUCensus[which.max(COVIDCensus)],
+            PeakIPVentNonICUCensus = VentNonICUCensus[which.max(COVIDCensus)],
+            PeakIPCCCensus = CriticalCareCensus[which.max(COVIDCensus)],
+            
+            PeakCCCensusDate = CensusDate[which.max(CriticalCareCensus)],
+            PeakCCIPCensus = COVIDCensus[which.max(CriticalCareCensus)],
+            PeakCCICUCensus = ICUCensus[which.max(CriticalCareCensus)],
+            PeakCCVentNonICUCensus = VentNonICUCensus[which.max(CriticalCareCensus)],
+            PeakCCCensus = CriticalCareCensus[which.max(CriticalCareCensus)])
+
 ## Moving forward, use peak critical care census day for conservative analysis
+
+## Peak critical care census is similar whether DataMart or Epic is used as the base data set.
+## However, census numbers are slightly more convervative when we use Epic as the base data set for Epic sites and supplement ICU and vent data with DataMart.
+
 
 ```
 
@@ -320,7 +368,22 @@ covid_census_steady_state <- covid_daily_census_summary %>%
             AvgVentNonICUCensus = mean(VentNonICUCensus),
             AvgCriticalCareCensus = mean(CriticalCareCensus))
 
+
+covid_census_steady_state_reverse <- covid_daily_census_reverse_summary %>%
+  filter(CensusDate >= covid_steady_state_start) %>%
+  group_by(Site) %>%
+  summarize(AvgIPCensus = mean(COVIDCensus),
+            AvgICUCensus = mean(ICUCensus),
+            AvgVentNonICUCensus = mean(VentNonICUCensus),
+            AvgCriticalCareCensus = mean(CriticalCareCensus))
+
+## Steady state census is similar whether DataMart or Epic is used as the base data set.
+## However, steady state census numbers are slightly more conservative when we use Epic as the base data set for Epic sites and supplement ICU and vent data with DataMart
+
+## Moving forward, use Epic as base data set for Epic sites and DataMart for MSBI
+
 ```
+
 
 
 ```{r Format IP discharge data}
