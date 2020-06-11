@@ -76,6 +76,10 @@ covid_steady_state_end <- as.Date("5/31/20", format = "%m/%d/%y")
 
 sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
 
+site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
+
+flu_season_order <- c("Non-Flu", "Flu")
+
 # Import data tables from DataMart ---------------
 covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006091548.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
 
@@ -88,11 +92,11 @@ ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disc
                                               "text", "text", "text", "text", "text", "text", "text",
                                               "numeric", "numeric"))
 
-# # Import FY2019 IP census room & board charge data
-# rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges FY2019 2020-05-19.xlsx"))
+# Import FY2019 IP census room & board charge data
+rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges Jan19 to Feb20 w Accom Code 2020-06-11.xlsx"))
 # 
 # Import analysis reference
-reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-05-27.xlsx")
+reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-06-11.xlsx")
 ref_sheets <- excel_sheets(reference_file)
 
 ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
@@ -104,6 +108,7 @@ ip_disch_units_ref <- ref_data[[4]]
 
 rb_charge_ipd_ref <- ref_data[[5]]
 rb_charge_site_ref <- ref_data[[6]]
+rb_charge_accom_ref <- ref_data[[7]]
 
 ```
 
@@ -310,8 +315,6 @@ covid_census_peaks <- daily_covid_census_summary %>%
             PeakCCVentNonICUCensus = VentNonICUCensus[which.max(CriticalCareCensus)],
             PeakCCCensus = CriticalCareCensus[which.max(CriticalCareCensus)])
 
-site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
-
 covid_census_peaks$Site <- factor(covid_census_peaks$Site, levels = site_order, ordered = TRUE)
 
 covid_census_peaks <- covid_census_peaks %>%
@@ -468,12 +471,217 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
 ```
 
 
-```{r Preprocess room and board data to determine daily census}
-# rb_charge_df <- rb_charge_df_raw
-# 
-# sites_units <- unique(rb_charge_df[ , c("Hospital", "IPD")])
+```{r Preprocess room and board data to determine daily census changes during flu season}
+rb_charge_df <- rb_charge_df_raw
+
+# Crosswalk sites, unit, and accommodation code reference data
+rb_charge_df <- left_join(rb_charge_df, rb_charge_site_ref, by = c("Hospital" = "Hospital"))
+
+rb_charge_df <- left_join(rb_charge_df, rb_charge_ipd_ref, by = c("Site" = "Site", "IPD" = "IPD"))
+
+rb_charge_df <- left_join(rb_charge_df, rb_charge_accom_ref, by = c("IPD" = "IPD", "Accommodation Description" = "Accommodation Description"))
+
+# Master roll up for ICU based on unit mapping and accommodation code
+rb_charge_df <- rb_charge_df %>%
+  mutate(ICUMaster = ifelse(ICU == "Depends", ICUAccom, ICU))
+
+# Create columns for census date, month, and year. Include days per month and whether or not the
+# census date is in a peak flu month (Nov-Mar)
+rb_charge_df <- rb_charge_df %>%
+  mutate(CensusDate = date(`Service Date`), 
+         CensusMonth = month(CensusDate),
+         CensusYear = year(CensusDate),
+         DaysInMonth = days_in_month(CensusDate),
+         FluMonth = ifelse(CensusMonth <= 3 | CensusMonth >= 11, 1, 0))
+
+# Subset R&B data for adult med surg units only
+adult_med_surg_df <- rb_charge_df %>%
+  filter(AdultMedSurg == "Yes") %>%
+  select(`Encounter Number`, Msmrn, Hospital, Site,
+         `Service Date`, CensusDate, CensusMonth, CensusYear, DaysInMonth, FluMonth,
+         IPD, `Accommodation Description`, ICU, AdultMedSurg, PedsUnit, NurseryNICU,
+         ICUAccom, ICUMaster)
+```
+
+```{r Determine IP and ICU ADC to understand flu surges}
+# Summarize daily adult med surg census by site
+ms_daily_census_site <- adult_med_surg_df %>%
+  group_by(Site, CensusDate, CensusMonth, CensusYear, DaysInMonth, FluMonth) %>%
+  summarize(IPDays = n(), ICUDays = sum(ICUMaster == "Yes"))
+
+# Summarize 2019 monthly adult med surg census by site
+ms_monthly_census_site <- adult_med_surg_df %>%
+  filter(CensusYear == 2019) %>%
+  group_by(Site, CensusYear, CensusMonth, DaysInMonth, FluMonth) %>%
+  summarize(IPDays = n(), ICUDays = sum(ICUMaster == "Yes")) %>%
+  mutate(CensusDate = as.Date(paste0(CensusMonth, "/1/", CensusYear), format = "%m/%d/%Y"),
+         IPADC = IPDays / DaysInMonth, ICUADC = ICUDays / DaysInMonth,
+         SeasonType = ifelse(FluMonth == 0, "Non-Flu", "Flu"))
+
+# Summarize 2019 monthly adult med surg census across the system
+ms_monthly_census_system <- adult_med_surg_df %>%
+  filter(CensusYear == 2019) %>%
+  group_by(CensusYear, CensusMonth, DaysInMonth, FluMonth) %>%
+  summarize(IPDays = n(), ICUDays = sum(ICUMaster == "Yes")) %>%
+  mutate(Site = "MSHS", 
+         CensusDate = as.Date(paste0(CensusMonth, "/1/", CensusYear), format = "%m/%d/%Y"),
+         IPADC = IPDays / DaysInMonth, ICUADC = ICUDays / DaysInMonth,
+         SeasonType = ifelse(FluMonth == 0, "Non-Flu", "Flu"))
+
+ms_monthly_census_system <- ms_monthly_census_system[ , colnames(ms_monthly_census_site)]
+
+# Bind together site and system monthly census
+ms_monthly_census_summary <- rbind(ms_monthly_census_site, ms_monthly_census_system)
+
+# Melt monthly ADC data frames for plotting
+ms_monthly_census_site_melt <- melt(ms_monthly_census_site,
+                                    id.vars = c("Site", "CensusDate", "SeasonType"),
+                                    measure.vars = c("IPADC", "ICUADC"))
+
+ms_monthly_census_system_melt <- melt(ms_monthly_census_system,
+                                      id.vars = c("Site", "CensusDate", "SeasonType"),
+                                    measure.vars = c("IPADC", "ICUADC"))
+
+ms_monthly_census_site_melt$Site <- factor(ms_monthly_census_site_melt$Site, levels = site_order, ordered = TRUE)
+
+ms_monthly_census_site_melt$SeasonType <- factor(ms_monthly_census_site_melt$SeasonType, levels = flu_season_order, ordered = TRUE)
+
+ms_monthly_census_system_melt$SeasonType <- factor(ms_monthly_census_system_melt$SeasonType, levels = flu_season_order, ordered = TRUE)
+
+# Compare ADC during flu season to non-flu season ------------------
+# Summarize 2019 ADC for flu months vs non-flu months
+ms_flu_season_census_site <- ms_monthly_census_site %>%
+  group_by(Site, FluMonth, SeasonType) %>%
+  summarize(SeasonDays = sum(DaysInMonth), IPDays = sum(IPDays), ICUDays = sum(ICUDays)) %>%
+  mutate(IPADC = IPDays / SeasonDays, ICUADC = ICUDays / SeasonDays)
+
+# Summarize 2019 ADC for flu months vs non-flu months
+ms_flu_season_census_system <- ms_monthly_census_system %>%
+  group_by(Site, FluMonth, SeasonType) %>%
+  summarize(SeasonDays = sum(DaysInMonth), IPDays = sum(IPDays), ICUDays = sum(ICUDays)) %>%
+  mutate(IPADC = IPDays / SeasonDays, ICUADC = ICUDays / SeasonDays)
+
+# Melt data frames for plotting
+ms_flu_season_census_site_melt <- melt(ms_flu_season_census_site, 
+                                       id.vars = c("Site", "SeasonType"),
+                                       measure.vars = c("IPADC", "ICUADC"))
+
+ms_flu_season_census_site_melt$SeasonType <- factor(ms_flu_season_census_site$SeasonType,
+                                               levels = flu_season_order, ordered = TRUE)
+
 
 ```
+
+```{r Plot ADC during flu season and non-flu season for across sites}
+adc_labels <- c(IPADC = "Adult Med Surg", ICUADC = "ICU")
+
+ggplot(data = ms_flu_season_census_site_melt, aes(x = Site, y = value, fill = SeasonType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = adc_labels)) +
+  labs(title = "Adult Med Surg ADC for Flu and Non-Flu Months by Site", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Season", values = c("#221f72", "#00AEEF")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
+
+
+```
+
+```{r Custom function to plot monthly ADC for each site}
+monthly_adc_plot <- function(site) {
+  site <- site
+  
+  site_df <- ms_monthly_census_site_melt %>%
+    filter(Site == site)
+  
+  ggplot(data = site_df, aes(x = CensusDate, y = value, fill = SeasonType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = adc_labels)) +
+  labs(title = paste(site, "Adult Med Surg ADC by Month"), x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Season", values = c("#221f72", "#00AEEF")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%m/%y")
+  
+}
+
+```
+
+```{r Determine flu surge census}
+# Since ICUs don't see a consistent, large increase in ADC during flu season, use a different approach to determine flu surge
+# Use difference between ICU ADC of lowest non-flu month and highest flu month
+
+ms_non_flu_low_month <- ms_monthly_census_summary %>%
+  filter(FluMonth == 0) %>%
+  group_by(Site, SeasonType) %>%
+  summarize(LowestNonFluIPMonth = CensusDate[which.min(IPADC)],
+            LowestNonFluIPADC = IPADC[which.min(IPADC)],
+            LowestNonFluICUADC = ICUADC[which.min(IPADC)])
+
+ms_flu_high_month <- ms_monthly_census_summary %>%
+  filter(FluMonth == 1) %>%
+  group_by(Site, SeasonType) %>%
+  summarize(HighestFluMonth = CensusDate[which.max(IPADC)],
+            HighestFluIPADC = IPADC[which.max(IPADC)],
+            HighestFluICUADC = ICUADC[which.max(IPADC)])
+
+# Bind together lowest non-flu month and highest flu month
+ms_flu_low_high_months <- left_join(ms_non_flu_low_month, ms_flu_high_month, by = c("Site" = "Site"))
+
+ms_flu_low_high_months <- ms_flu_low_high_months %>%
+  mutate(FluIPADC = HighestFluIPADC - LowestNonFluIPADC,
+         FluICUADC = HighestFluICUADC - LowestNonFluICUADC)
+
+ms_flu_low_high_months_melt <- melt(ms_flu_low_high_months, id.var = c("Site"),
+                                    measure.vars = c("LowestNonFluIPADC", "LowestNonFluICUADC",
+                                                     "HighestFluIPADC", "HighestFluICUADC"))
+
+ms_flu_low_high_months_melt <- ms_flu_low_high_months_melt %>%
+  mutate(CensusType = ifelse(variable == "LowestNonFluIPADC" | variable == "HighestFluIPADC", "IPADC", "ICUADC"),
+         MonthType = ifelse(variable == "LowestNonFluIPADC" | variable == "LowestNonFluICUADC", "Non-Flu", "Flu"))
+
+ms_flu_low_high_months_melt$MonthType <- factor(ms_flu_low_high_months_melt$MonthType,
+                                               levels = flu_season_order, ordered = TRUE)
+
+ggplot(data = ms_flu_low_high_months_melt, aes(x = Site, y = value, fill = MonthType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(CensusType ~ ., scales = "free", labeller = labeller(CensusType = adc_labels)) +
+  labs(title = "Adult Med Surg ADC for Flu and Non-Flu Months by Site", x = "Site", y = "ADC") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  geom_text(aes(label = round(value, digits = 1)), position = position_dodge(width = 1), vjust = -0.25, size = 3) +
+  scale_fill_manual(name = "Flu Season", values = c("#221f72", "#00AEEF")) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))
+
+```
+
 
 ```{r Scale historical ICU ADC and COVID IP census data}
 
