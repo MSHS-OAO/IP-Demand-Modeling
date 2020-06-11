@@ -170,25 +170,6 @@ dm_covid_census_subset <- dm_covid_days_df %>%
 
 dm_covid_census_subset$INFECTION_STATUS <- NULL
 
-
-# # Summarize ICU, vent, critical care, and non-critical care census by day
-# ip_covid_daily_census_site <- covid_ip_days_df %>%
-#   filter(IP_SITE != "MSSN") %>%
-#   group_by(IP_SITE, CensusDate) %>%
-#   summarize(IPCOVIDCensus = n(), 
-#             ICUCOVIDCensus = sum(ICU), 
-#             NonICUVentCensus = sum(VENT_NON_ICU, na.rm = TRUE),
-#             CriticalCareCensus = ICUCOVIDCensus + NonICUVentCensus, 
-#             NonCriticalCareCensus = IPCOVIDCensus - CriticalCareCensus)
-# 
-# ip_covid_daily_census_system <- covid_ip_days_df %>%
-#   filter(IP_SITE != "MSSN") %>%
-#   group_by(CensusDate) %>%
-#   summarize(IPCOVIDCensus = n(), 
-#             ICUCOVIDCensus = sum(ICU), 
-#             NonICUVentCensus = sum(VENT_NON_ICU, na.rm = TRUE),
-#             CriticalCareCensus = ICUCOVIDCensus + NonICUVentCensus,
-#             NonCriticalCareCensus = IPCOVIDCensus - CriticalCareCensus)
 ```
 
 
@@ -240,7 +221,8 @@ epic_site_covid_crosswalk$DataMartICUDay[is.na(epic_site_covid_crosswalk$DataMar
 
 epic_site_covid_crosswalk <- epic_site_covid_crosswalk %>%
   mutate(ICUMaster = ifelse(DataMartICUDay | EpicICUDay, 1, 0),
-         CriticalCareDay = ifelse(ICUMaster %in% 1 | VENT_NON_ICU %in% 1, 1, 0))
+         VentNonICU = ifelse(VENT_NON_ICU %in% 1 & ICUMaster %in% 0, 1, 0),
+         CriticalCareDay = ifelse(ICUMaster %in% 1 | VentNonICU %in% 1, 1, 0))
 
 ```
 
@@ -266,7 +248,8 @@ msbi_epic_mimic_covid <- msbi_covid_census %>%
          EpicICUDay = FALSE,
          COVIDDay = 1,
          ICUMaster = ifelse(DataMartICUDay | EpicICUDay, 1, 0),
-         CriticalCareDay = ifelse(ICUMaster %in% 1 | VENT_NON_ICU %in% 1, 1, 0))
+         VentNonICU = ifelse(VENT_NON_ICU %in% 1 & ICUMaster %in% 0, 1, 0),
+         CriticalCareDay = ifelse(ICUMaster %in% 1 | VentNonICU %in% 1, 1, 0))
 
 epic_col_names <- colnames(epic_site_covid_crosswalk)
 
@@ -284,7 +267,7 @@ daily_covid_census_site <- all_sites_covid_enc %>%
             DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
             EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
             ICUCensus = sum(ICUMaster, na.rm = TRUE), 
-            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            VentNonICUCensus = sum(VentNonICU, na.rm = TRUE), 
             CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
   ungroup()
 
@@ -296,7 +279,7 @@ daily_covid_census_system <- all_sites_covid_enc %>%
             DMICUCensus = sum(DataMartICUDay, na.rm = TRUE),
             EpicICUCensus = sum(EpicICUDay, na.rm = TRUE), 
             ICUCensus = sum(ICUMaster, na.rm = TRUE), 
-            VentNonICUCensus = sum(VENT_NON_ICU, na.rm = TRUE), 
+            VentNonICUCensus = sum(VentNonICU, na.rm = TRUE), 
             CriticalCareCensus = sum(CriticalCareDay, na.rm = TRUE)) %>%
   ungroup()
 
@@ -331,8 +314,16 @@ site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
 
 covid_census_peaks$Site <- factor(covid_census_peaks$Site, levels = site_order, ordered = TRUE)
 
+covid_census_peaks <- covid_census_peaks %>%
+  arrange(Site)
 
+# Moving forward, use date with highest critical care census for scenario modeling over highest IP census
 
+covid_census_icu_peak_summary <- covid_census_peaks[ , c("Site", "PeakCCCensusDate",
+                                                         "PeakCCIPCensus", "PeakCCICUCensus",
+                                                         "PeakCCVentNonICUCensus", "PeakCCCensus")]
+colnames(covid_census_icu_peak_summary) <- c("Site", "Date", "IPCensus", 
+                                             "ICUCensus", "VentNonICUCensus", "CriticalCareCensus")
 
 ```
 
@@ -390,12 +381,18 @@ test <- ip_disch_df %>%
 ```
 
 ```{r Susbet data frame based on unit and patient type and then summarize}
-# Inclusion criteria
-# Remove any peds encounters
-# Remove NICU and newborn discharges
-# Include any encounter with an ICU LOS > 0 OR any patient discharged from an adult med/surg unit
+# # Inclusion criteria
+# # Remove any peds encounters
+# # Remove NICU and newborn discharges
+# # Include any encounter with an ICU LOS > 0 OR any patient discharged from an adult med/surg unit
+# ip_disch_subset <- ip_disch_df %>%
+#   filter(PedsUnit == "No" & NurseryNICU == "No" & AdmitType != "Newborn" & (`Icu Days Msx` > 0 | AdultMedSurg == "Yes"))
+
+# Exclusion criteria
+# Remove any chem dependency, psych, rehab, peds, newborn, neonatal, and OB encounters
+# Remove any encounter with "Newborn" as admit type
 ip_disch_subset <- ip_disch_df %>%
-  filter(PedsUnit == "No" & NurseryNICU == "No" & AdmitType != "Newborn" & (`Icu Days Msx` > 0 | AdultMedSurg == "Yes"))
+  filter(ServiceInclude == "Yes" & AdmitType != "Newborn")
 
 # Determine total discharges and ICU ADC for each site based on admit type ----------------------------
 # Summarize data for each site based on admit type
@@ -472,12 +469,11 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
 
 
 ```{r Preprocess room and board data to determine daily census}
-rb_charge_df <- rb_charge_df_raw
-
-sites_units <- unique(rb_charge_df[ , c("Hospital", "IPD")])
+# rb_charge_df <- rb_charge_df_raw
+# 
+# sites_units <- unique(rb_charge_df[ , c("Hospital", "IPD")])
 
 ```
-
 
 ```{r Scale historical ICU ADC and COVID IP census data}
 
@@ -486,7 +482,7 @@ sites_units <- unique(rb_charge_df[ , c("Hospital", "IPD")])
 scale_factors <- data.frame("Scale" = c(0.25, 0.5, 0.75, 1.0))
 
 covid_icu_scenarios <- covid_census_icu_peak_summary %>%
-  select(IP_SITE, CriticalCareCensus)
+  select(Site, CriticalCareCensus)
 
 ip_icu_scenarios <- ip_disch_summary %>%
   select(Site, ICUADC)
@@ -521,8 +517,6 @@ ip_icu_scenarios <- ip_icu_scenarios %>%
          ScaleName = paste0(Scale*100, "% Historical"))
 
 # Set site and scale name to factors before casting
-covid_icu_scenarios$IP_SITE <- factor(covid_icu_scenarios$IP_SITE, levels = c("MSH", "MSQ", "MSB", "MSBI", "MSW", "MSM", "MSHS"), ordered = TRUE)
-
 covid_icu_scenarios$ScaleName <- factor(covid_icu_scenarios$ScaleName,
                                    levels = c("25% Peak", "50% Peak", "75% Peak", "100% Peak"), ordered = TRUE)
 
@@ -532,15 +526,14 @@ ip_icu_scenarios$ScaleName <- factor(ip_icu_scenarios$ScaleName,
                                    levels = c("25% Historical", "50% Historical", "75% Historical", "100% Historical"), ordered = TRUE)
 
 # Cast data frame for kables
-covid_icu_scenarios_cast <-  dcast(covid_icu_scenarios, IP_SITE + CriticalCareCensus ~ ScaleName, value.var = "ScaledICUCensus")
-covid_icu_scenarios_cast$IP_SITE <- as.character(covid_icu_scenarios_cast$IP_SITE)
+covid_icu_scenarios_cast <-  dcast(covid_icu_scenarios, Site + CriticalCareCensus ~ ScaleName, value.var = "ScaledICUCensus")
 
 ip_icu_scenarios_cast <-  dcast(ip_icu_scenarios, Site + ICUADC ~ ScaleName, value.var = "ScaledICUCensus")
 ip_icu_scenarios_cast$Site <- as.character(ip_icu_scenarios_cast$Site)
 
 
 # Bind COVID scenarios with COVID census peak summary table
-covid_census_peak_summary_scenarios <- left_join(covid_census_icu_peak_summary[ , c("IP_SITE", "ICUPeakDate", "IPCensus", "ICUCensus", "NonICUVentCensus", "CriticalCareCensus")], covid_icu_scenarios_cast, by = c("IP_SITE" = "IP_SITE", "CriticalCareCensus" = "CriticalCareCensus"))
+covid_census_peak_summary_scenarios <- left_join(covid_census_icu_peak_summary[ , c("Site", "Date", "IPCensus", "ICUCensus", "VentNonICUCensus", "CriticalCareCensus")], covid_icu_scenarios_cast, by = c("Site" = "Site", "CriticalCareCensus" = "CriticalCareCensus"))
 
 # Bind ICU ADC scenarios with IP discharge summary table
 ip_disch_summary_scenarios <- left_join(ip_disch_summary, ip_icu_scenarios_cast, by = c("Site" = "Site", "ICUADC" = "ICUADC"))
@@ -574,37 +567,15 @@ icu_census_project <- function(site) {
 
 ```
 
-```{r Custom function for creating COVID-19 steady state census table}
-covid_steady_state_census <- function(site) {
-  site <- site
-
-  covid_stead_state_census <- covid_census_steady_state_summary %>%
-    filter(IP_SITE == site)
-
-  covid_stead_state_census$IP_SITE <- NULL
-
-  kable(covid_stead_state_census, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census"),
-      caption = paste(site, " COVID-19 Steady State Census (Average of 05/15/20-Present)")) %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 3), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(1:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(1:4), background = "inherit", color = "inherit") %>%
-  # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  add_header_above(c("COVID-19 Average Census" = 4), background = sinai_colors[1], color = "white", line = FALSE)
-}
-
-
-```
 
 ```{r Custom function for creating COVID-19 projection table}
 covid_census_project <- function(site) {
   site <- site
 
   covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
-    filter(IP_SITE == site)
+    filter(Site == site)
 
-  covid_disch_scenarios_site$IP_SITE <- NULL
+  covid_disch_scenarios_site$Site <- NULL
 
   kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
       col.names =c("Date", "IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census",
@@ -622,34 +593,39 @@ covid_census_project <- function(site) {
 
 ```
 
-## ICU Census Comparison
+## Model Updates and Considerations
+
+### ICU Census Comparison
 Two methods implemented to determine peak ICU census for scenario testing:
 
 * Method 1: Utilize ICU census from date with highest COVID-19 IP census
 * Method 2: Utilize ICU census from date with highest COVID-19 ICU census
 ```{r Create kable comparing two methods of calculating peak ICU census}
-kable(compare_covid_peak_summary, format = "html", escape = FALSE, align = "c", 
-      col.names = c("Site", "Date", "IP Census", "ICU Census", "Date", "IP Census", "ICU Census"),
-      caption = "ICU Census Methodology Comparison") %>%
+kable(covid_census_peaks, format = "html", escape = FALSE, align = "c", 
+      col.names = c("Site", "Date", "IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census", "Date", "IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census"),
+      caption = "Peak Critical Care Census Methodology Comparison") %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%
+  column_spec(column = c(1, 6), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:6), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(7:11), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:11), background = "inherit", color = "inherit") %>%
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  row_spec(row = nrow(compare_covid_peak_summary), background = "lightgrey", bold = T) %>%
-  add_header_above(c("Site" = 1, "Method 1: Peak COVID-19 IP Census" = 3, "Method 2: Peak COVID-19 ICU Census" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+  row_spec(row = nrow(covid_census_peaks), background = "lightgrey", bold = T) %>%
+  add_header_above(c("Site" = 1, "Method 1: Peak COVID-19 IP Census" = 5, "Method 2: Peak COVID-19 Critical Care Census" = 5), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
 
 ```
-**Method 2 provides more conservative ICU projections and will be used moving forward.**
+**Method 2 provides more conservative critical care census projections and will be used moving forward.**
 
-## ICU Census Projections
+### Flu ADC Comparisons
+
+
+## Critical Care Census Projections
 ### MSHS
 *Excludes MSSN*
 ```{r Create tables for MSHS}
 icu_census_project(site = "MSHS")
 
-covid_steady_state_census(site = "MSHS")
+# covid_steady_state_census(site = "MSHS")
 
 covid_census_project(site = "MSHS")
 
@@ -660,7 +636,7 @@ covid_census_project(site = "MSHS")
 ```{r Create tables for MSH}
 icu_census_project(site = "MSH")
 
-covid_steady_state_census(site = "MSH")
+# covid_steady_state_census(site = "MSH")
 
 covid_census_project(site = "MSH")
 
@@ -670,7 +646,7 @@ covid_census_project(site = "MSH")
 ```{r Create tables for MSQ}
 icu_census_project(site = "MSQ")
 
-covid_steady_state_census(site = "MSQ")
+# covid_steady_state_census(site = "MSQ")
 
 covid_census_project(site = "MSQ")
 
@@ -680,7 +656,7 @@ covid_census_project(site = "MSQ")
 ```{r Create tables for MSB}
 icu_census_project(site = "MSB")
 
-covid_steady_state_census(site = "MSB")
+# covid_steady_state_census(site = "MSB")
 
 covid_census_project(site = "MSB")
 
@@ -690,7 +666,7 @@ covid_census_project(site = "MSB")
 ```{r Create tables for MSBI}
 icu_census_project(site = "MSBI")
 
-covid_steady_state_census(site = "MSBI")
+# covid_steady_state_census(site = "MSBI")
 
 covid_census_project(site = "MSBI")
 
@@ -700,7 +676,7 @@ covid_census_project(site = "MSBI")
 ```{r Create tables for MSM}
 icu_census_project(site = "MSM")
 
-covid_steady_state_census(site = "MSM")
+# covid_steady_state_census(site = "MSM")
 
 covid_census_project(site = "MSM")
 
@@ -710,7 +686,7 @@ covid_census_project(site = "MSM")
 ```{r Create tables for MSW}
 icu_census_project(site = "MSW")
 
-covid_steady_state_census(site = "MSW")
+# covid_steady_state_census(site = "MSW")
 
 covid_census_project(site = "MSW")
 
@@ -733,8 +709,8 @@ MSH, MSB, MSW, MSM, MSBI: Accommodation type of Intensive Care or Coronary Care.
 MSQ: Based on unit and bed history described below.</br>
 
 * MSQ 6 ICU: Always ICU
-* MSQ 5 East: PACU converted to ICU prior to 5/7/20
-* MSQ 6 East: ICU prior to 5/22/20 when rooms 601, 606, and 608 converted back to IMCU
+* MSQ 5 East: PACU converted to ICU from 3/28/20-5/6/20
+* MSQ 6 East: ICU from 3/28/20-5/22/20 when rooms 601, 606, and 608 converted back to IMCU
 * MSQ 2 East: Rooms 208-217 converted to ICU from 5/7/20-5/19/20
 
 
