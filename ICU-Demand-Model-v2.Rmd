@@ -1,12 +1,8 @@
 ---
-title: "ICU Census Scenarios"
+title: "Adult Med Surg Critical Care Demand"
 author: "HSO"
 date: "5/20/2020"
-output: 
-  html_document:
-    toc: true
-    toc_depth: 3
-    toc_float: true
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -884,7 +880,7 @@ census_additions_table <- function(site) {
 
   kable(census_add_site, format = "html", escape = FALSE, align = "c", digits = 1,
       col.names =c("Scenario", "IP ADC", "Critical Care ADC"),
-      caption = paste(site, " Census Addition Considerations")) %>%
+      caption = paste(site, " Census Additions")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1), border_right = "thin solid lightgray", background = "white") %>%
   column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
@@ -942,14 +938,72 @@ low_high_flu_month_plot <- ggplot(data = ms_flu_low_high_months_site, aes(x = Si
 
 ```
 
+## {.tabset}
 
-## Model Updates and Considerations
+### Model Updates
 
-### ICU Census Comparison
-Two methods implemented to determine peak ICU census for scenario testing:
+<h4><b>ICU Demand Model Updates:</b></h4>
+1. COVID Peak Census
+    + Tested two methods to determine peak critical care census. See "COVID Peak Census Methodology" table for more details.
+    + Peak COVID critical care census based on day with highest critical care census, not highest IP census
+    + COVID critical care census expanded to include patients on vents not in ICU
+2. COVID Steady State Census
+    + Based on COVID census from 5/15/20-6/7/20
+3. COVID Surge Scenarios
+    + Updated to include difference between historical peak and steady state census
+4. Flu Surge Census Impact
+    + Incorporated room and board charge data to determine census increases during flu season
+    + Flu months: November, December, January, February, March
+    + See "Flu Surge Methodology" tab for additional details
 
-* Method 1: Utilize ICU census from date with highest COVID-19 IP census
-* Method 2: Utilize ICU census from date with highest COVID-19 ICU census
+
+### Data Sources
+
+<h4><b>Historical ICU Census Analysis</b></h4>
+**Data Source:**</br>
+FY2019 ICU ADC based on billing data for patients discharged from 1/1/2019-12/31/2019.</br>
+Elective and non-elective breakdown based on encounter admit type.</br>
+Analysis excludes peds, nursery/neonatal, obstetrics, psych, rehab, and chemical dependency encounters.
+<h4></h4></br>
+
+<h4><b>COVID-19 Census Analysis:</b></h4>
+**Data Source for Epic Sites:**</br>
+Epic COVID Census Day Prior reports representing census as of 11:59PM from 3/12/20-6/7/20 used as basis for census  analysis. Enterprise DataMart patient registry inpatient table used to supplement Epic report to identify additional ICU and non-ICU vent days.</br>
+
+* Individal report name: COVID Census Prior Day.rpt
+* Epic date range: 3/12/20-6/7/20
+
+**Data Source for Non-Epic Sites:**</br>
+COVID census based on Enterprise DataMart patient registry inpatient table. COVID-Negative patients excluded. 
+
+* Table name: COVID_IP_PATIENT_DAYS_DETAIL pulled on 6/9/20 3:48PM</br>
+
+Steady state COVID census based on census from 5/15/20-6/7/20.</br>
+COVID peak scenarios based on difference between peak COVID census and steady state COVID census.</br>
+
+**ICU classifications for Epic and non-Epic sites:**</br>
+MSH, MSB, MSW, MSM, MSBI: Accommodation type of Intensive Care or Coronary Care in either Epic or Enterprise DataMart tables.</br>
+MSQ: Based on unit and bed history described below.</br>
+
+* MSQ 6 ICU: All beds always ICU
+* MSQ 5 East: PACU used as ICU from 3/28/20-5/6/20
+* MSQ 6 East: All beds in IMCU used as ICU from 3/28/20-5/21/20. From 5/22/20 on, rooms 601, 606, and 608 converted back to IMCU.
+* MSQ 2 East: Rooms 208-217 used as ICU from 5/7/20-5/19/20
+<h4></h4></br>
+
+<h4><b>Flu Surge Census:</b></h4>
+**Data Source:**</br>
+Based on room and board charges for FY2019 for patients discharged from 01/19-2/20. 
+</br>
+Analysis excludes peds, nursery/neonatal, obstetrics, psych, rehab, and chemical dependency units. ICU days based on unit type and accommodation codes. 
+
+
+### COVID Peak Census Methodology
+
+Two methods tested to determine peak ICU census for scenario testing:
+
+* Method 1: Utilize critical care census from date with highest COVID-19 IP census
+* Method 2: Utilize critical care census from date with highest COVID-19 critical care census
 ```{r Create kable comparing two methods of calculating peak ICU census}
 kable(covid_census_peaks, format = "html", escape = FALSE, align = "c", 
       col.names = c("Site", "Date", "IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census", "Date", "IP Census", "ICU Census", "Non-ICU Vent Census", "Critical Care Census"),
@@ -964,16 +1018,26 @@ kable(covid_census_peaks, format = "html", escape = FALSE, align = "c",
   add_header_above(c("Site" = 1, "Method 1: Peak COVID-19 IP Census" = 5, "Method 2: Peak COVID-19 Critical Care Census" = 5), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
 
 ```
-**Method 2 provides more conservative critical care census projections and will be used moving forward.**
+<h4><b>Method 2 provides more conservative critical care census projections and will be used moving forward.</b></h4>
 
-### Flu ADC Comparisons
+### Flu Surge Methodology
 #### Flu vs Non-Flu ADC
 ```{r Plot summary of ADC for flu and non flu months by site}
 flu_nonflu_month_plot
 
 ```
 
-**ICUs at each site do not always see a drastic  increase in cesus during flu months.**
+<h4><b>ICUs at each site do not always see a drasticincrease in census during flu months.</b></h4>
+</br>
+
+#### Lowest Non-Flu and Highest Flu Month ADC
+Instead of determining flu surge by using the difference in ADC across flu months vs. non-flu months, utilize the difference between the ADC int he highest flu month and ADC in lowest non-flu month for a conservative estimate of flu impact to census.
+```{r Low High Plot}
+low_high_flu_month_plot
+```
+
+<h4><b>Moving forward, use difference between lowest non-flu month and highest flu month as flu surge census.</b></h4>
+</br>
 
 #### Monthly ADC by Site
 ```{r Plot MSH monthly ADC}
@@ -1000,15 +1064,9 @@ monthly_adc_plot(site = "MSM")
 monthly_adc_plot(site = "MSW")
 ```
 
-#### Lowest Non-Flu and Highest Flu Month ADC
-```{r Low High Plot}
-low_high_flu_month_plot
-```
-
-**Moving forward, use difference between lowest non-flu month and highest flu month as flu surge census.**
-
-## Critical Care Census Projections
+<!-- ## Critical Care Census Projections -->
 ### MSHS
+<h3>MSHS Critical Care Demand</h3>
 *Excludes MSSN*
 ```{r Create tables for MSHS}
 icu_census_project(site = "MSHS")
@@ -1020,6 +1078,7 @@ covid_census_project(site = "MSHS")
 ```
 
 ### MSH
+#### MSH Critical Care Demand
 ```{r Create tables for MSH}
 icu_census_project(site = "MSH")
 
@@ -1030,6 +1089,7 @@ covid_census_project(site = "MSH")
 ```
 
 ### MSQ
+#### MSQ Critical Care Demand
 ```{r Create tables for MSQ}
 icu_census_project(site = "MSQ")
 
@@ -1040,6 +1100,7 @@ covid_census_project(site = "MSQ")
 ```
 
 ### MSB
+#### MSB Critical Care Demand
 ```{r Create tables for MSB}
 icu_census_project(site = "MSB")
 
@@ -1050,6 +1111,7 @@ covid_census_project(site = "MSB")
 ```
 
 ### MSBI
+#### MSBI Critical Care Demand
 ```{r Create tables for MSBI}
 icu_census_project(site = "MSBI")
 
@@ -1060,6 +1122,7 @@ covid_census_project(site = "MSBI")
 ```
 
 ### MSM
+#### MSM Critical Care Demand
 ```{r Create tables for MSM}
 icu_census_project(site = "MSM")
 
@@ -1070,6 +1133,7 @@ covid_census_project(site = "MSM")
 ```
 
 ### MSW
+#### MSW Critical Care Demand
 ```{r Create tables for MSW}
 icu_census_project(site = "MSW")
 
@@ -1079,26 +1143,6 @@ covid_census_project(site = "MSW")
 
 ```
 
-## Data Sources and Methodology
-**Historical ICU Census Analysis:**</br>
-**Data Source:** FY2019 ICU ADC based on billing data for patients discharged from 1/1/2019-12/31/2019.</br>
-Elective and non-elective breakdown based on encounter admit type.</br>
-Analysis exclusions:
-
-* All encounters discharged from peds, nursery, and NICU.
-* All encounters discharged from psych, rehab, mother-baby, and chemical dependency units unless the patient spent 1 or more days in an ICU.
-
-**COVID-19 Census:**</br>
-**Data Source:** COVID patient registry maintained in Enterprise Data Mart using inpatient tables. Data pulled on 5/12/2020 10:20AM.</br>
-Analysis includes patients with COVID flags of COVID-POSITIVE, COVID-PUI, COVID-SUSC, and COVID-RESOLVED.</br>
-*ICU classifications:*</br>
-MSH, MSB, MSW, MSM, MSBI: Accommodation type of Intensive Care or Coronary Care.</br>
-MSQ: Based on unit and bed history described below.</br>
-
-* MSQ 6 ICU: Always ICU
-* MSQ 5 East: PACU converted to ICU from 3/28/20-5/6/20
-* MSQ 6 East: ICU from 3/28/20-5/22/20 when rooms 601, 606, and 608 converted back to IMCU
-* MSQ 2 East: Rooms 208-217 converted to ICU from 5/7/20-5/19/20
 
 
 
