@@ -70,7 +70,9 @@ site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
 flu_season_order <- c("Non-Flu", "Flu")
 
 # Import data tables from DataMart ---------------
-covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006091548.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+# covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006091548.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006151700.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+
 
 # Import Epic daily COVID census
 epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-06-08.xlsx"))
@@ -82,7 +84,9 @@ ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disc
                                               "numeric", "numeric"))
 
 # Import FY2019 IP census room & board charge data
-rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges Jan19 to Feb20 w Accom Code 2020-06-11.xlsx"))
+rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges Jan19 to Feb20 w Accom Code 2020-06-11.xlsx"), 
+                               na = c("", "NA"), 
+                               col_type = c("text", "text", "text", "text", "text", "text", "text", "date", "numeric"))
 # 
 # Import analysis reference
 reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-06-11.xlsx")
@@ -105,6 +109,9 @@ rb_charge_accom_ref <- ref_data[[7]]
 ```{r Format COVID IP days raw data}
 # Format inpatient days dataframe ----------------------------------
 dm_covid_days_df <- covid_ip_days_df_raw
+
+# Remove duplicates
+dm_covid_days_df <- unique(dm_covid_days_df)
 
 # Convert dates from characters to dates
 dm_covid_days_df <- dm_covid_days_df %>%
@@ -204,6 +211,10 @@ epic_covid_census_subset <- epic_covid_census %>%
 ```{r Crosswalk Epic and DataMart data to pull in ICU and vent logic}
 epic_site_covid_crosswalk <- left_join(epic_covid_census_subset, dm_covid_census_subset,
                                     by = c("Encounter" = "CSN", "CensusDate" = "CensusDate"))
+
+# epic_site_covid_crosswalk$Test <- duplicated(epic_site_covid_crosswalk[ , c("Encounter", "CensusDate")])
+# 
+# dm_covid_census_subset$Test <- duplicated(dm_covid_census_subset[ , c("CSN", "CensusDate")])
 
 # Filter data based on census dates present in Epic and DataMart
 epic_site_covid_crosswalk <- epic_site_covid_crosswalk %>%
@@ -841,7 +852,7 @@ ms_flu_low_high_months <- ms_flu_low_high_months %>%
 # Create a data frame with necessary columns for COVID steady state
 covid_steady_state_census_add <- covid_census_steady_state %>%
   select(Site, IPADC, CriticalCareADC) %>%
-  mutate(Scenario = "COVID Steady State") %>%
+  mutate(Scenario = paste0("COVID Steady State (", format(covid_steady_state_start, "%m/%d"),"-",format(max(daily_covid_census_summary$CensusDate), "%m/%d"), ")")) %>%
   ungroup()
 
 
@@ -862,7 +873,7 @@ covid_ss_flu_census_add$Site <- factor(covid_ss_flu_census_add$Site,
                                        levels = site_order, ordered = TRUE)
 
 covid_ss_flu_census_add$Scenario <- factor(covid_ss_flu_census_add$Scenario,
-                                           levels = c("Flu Surge", "COVID Steady State"), ordered = TRUE)
+                                           levels = c("Flu Surge", paste0("COVID Steady State (", format(covid_steady_state_start, "%m/%d"),"-",format(max(daily_covid_census_summary$CensusDate), "%m/%d"), ")")), ordered = TRUE)
 
 covid_ss_flu_census_add <- covid_ss_flu_census_add %>%
   arrange(Site, Scenario)
