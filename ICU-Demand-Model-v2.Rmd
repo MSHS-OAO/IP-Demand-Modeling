@@ -990,7 +990,7 @@ Epic COVID Census Day Prior reports representing census as of 11:59PM from 3/12/
 **Data Source for Non-Epic Sites:**</br>
 COVID census based on Enterprise DataMart patient registry inpatient table. COVID-Negative patients excluded. 
 
-* Table name: COVID_IP_PATIENT_DAYS_DETAIL pulled on 6/9/20 3:48PM</br>
+* Table name: COVID_IP_PATIENT_DAYS_DETAIL pulled on 6/18/20 3:51PM</br>
 
 Steady state COVID census based on census from 5/15/20-6/7/20.</br>
 COVID peak scenarios based on difference between peak COVID census and steady state COVID census.</br>
