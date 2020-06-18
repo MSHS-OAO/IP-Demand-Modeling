@@ -71,7 +71,7 @@ flu_season_order <- c("Non-Flu", "Flu")
 
 # Import data tables from DataMart ---------------
 # covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006091548.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
-covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006151700.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006181550.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
 
 
 # Import Epic daily COVID census
@@ -155,7 +155,8 @@ dm_covid_days_df <- dm_covid_days_df %>%
                                                                                                                                                                   (CensusDate >= as.Date("3/28/20", format = "%m/%d/%y") & CensusDate < as.Date("5/22/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 6 EAST") |
                                                                                                                                                                   (CensusDate >= as.Date("5/22/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 6 EAST" & CENSUS_ROOM %in% as.character(c(601, 606, 608)) == FALSE))),
          
-         COVIDPt = (COVID_FLAG %in% c("COVID-POSITIVE", "COVID-PUI", "COVID-SUSC", "COVID-RESOLVED")))
+         COVIDPt = (COVID_FLAG %in% c("COVID-POSITIVE", "COVID-PUI", "COVID-SUSC", "COVID-RESOLVED")), 
+         COVIDCensusDay = (PAT_DAY_INF_STATUS %in% c("COVID-19", "COVID - PUI", "SUSC COVID")))
 
 
 # Subset data frame based on census date and remove MSSN
@@ -166,10 +167,11 @@ dm_covid_census_subset <- dm_covid_days_df %>%
          COVID_FLAG, 
          CENSUS_DEPT, CENSUS_ROOM, ACCOMMODATION_DESC, 
          PATIENT_DAY, ICU_DAY, VENT_DAY, VENT_NON_ICU, TOT_CRITICAL_CARE,
-         DataMartICUDay, LOAD_DATE, INFECTION_STATUS) %>%
-  mutate(DataMartInfection = INFECTION_STATUS)
+         DataMartICUDay, LOAD_DATE, INFECTION_STATUS, PAT_DAY_INF_STATUS, COVIDCensusDay) %>%
+  mutate(DataMartInfection = PAT_DAY_INF_STATUS)
 
 dm_covid_census_subset$INFECTION_STATUS <- NULL
+dm_covid_census_subset$PAT_DAY_INF_STATUS <- NULL
 
 ```
 
@@ -234,6 +236,7 @@ epic_site_covid_crosswalk <- epic_site_covid_crosswalk %>%
 ```{r Create MSBI daily census using DataMart}
 msbi_covid_census <- dm_covid_census_subset %>%
   filter(IP_SITE == "MSBI" & 
+           COVIDCensusDay &
            CensusDate <= min(max(epic_site_covid_crosswalk$CensusDate),
                            max(dm_covid_census_subset$CensusDate)))
 
