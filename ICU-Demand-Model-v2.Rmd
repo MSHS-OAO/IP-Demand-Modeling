@@ -60,8 +60,7 @@ if (list.files("J://") == "Presidents") {
 
 covid_trend_start_date <- as.Date("3/12/20", format = "%m/%d/%y")
 
-covid_steady_state_start <- as.Date("5/15/20", format = "%m/%d/%y")
-covid_steady_state_end <- as.Date("5/31/20", format = "%m/%d/%y")
+covid_steady_state_start <- as.Date("6/8/20", format = "%m/%d/%y")
 
 sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
 
@@ -71,11 +70,11 @@ flu_season_order <- c("Non-Flu", "Flu")
 
 # Import data tables from DataMart ---------------
 # covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006091548.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
-covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006181550.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
+covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATIENT_DAYS_DETAIL_202006241136.csv"), stringsAsFactors = FALSE, na = c("", "NA"))
 
 
 # Import Epic daily COVID census
-epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-06-08.xlsx"))
+epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-06-24.xlsx"))
 
 # Import FY2019 IP discharge data
 ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
