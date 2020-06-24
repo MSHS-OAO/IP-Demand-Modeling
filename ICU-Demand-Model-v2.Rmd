@@ -473,7 +473,7 @@ ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
 
 # Scale ICU census at peak
 # scale_factors <- data.frame("Scale" = c(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.8, 0.9, 1.0))
-scale_factors_covid <- data.frame("Scale" = c(0.25, 0.5, 0.75, 1.0))
+scale_factors_covid <- data.frame("Scale" = c(0.25, 0.5))
 
 # Calculate peak COVID scenarios using the difference between peak census and steady state census
 # covid_icu_scenarios <- covid_census_icu_peak_summary %>%
@@ -535,7 +535,7 @@ covid_icu_scenarios_scale <- covid_icu_scenarios_scale %>%
 
 # Set site and scale name to factors before casting
 covid_icu_scenarios_scale$ScaleName <- factor(covid_icu_scenarios_scale$ScaleName,
-                                   levels = c("25% Peak", "50% Peak", "75% Peak", "100% Peak"), ordered = TRUE)
+                                   levels = c("25% Peak", "50% Peak"), ordered = TRUE)
 
 # Format casted dataframe to italicize and grey out NAs
 covid_icu_scenarios_scale_kable <- covid_icu_scenarios_scale %>%
@@ -635,15 +635,15 @@ covid_census_project <- function(site) {
   
   kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
       col.names =c("Scenario", "Date", "IP Census", "Critical Care Census", 
-                   "25% Peak", "50% Peak", "75% Peak", "100% Peak"),
+                   "25% Peak", "50% Peak"),
       caption = paste(site, " COVID-19 Critical Care Census Scenarios")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
   column_spec(column = c(1:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:8), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(1:8), background = "inherit", color = "inherit") %>%
+  column_spec(column = c(5:6), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(1:6), background = "inherit", color = "inherit") %>%
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  add_header_above(c("COVID-19 Peak Critical Care Census" = 4, "COVID-19 Critical Care Census Scenarios" = 4), background = c(sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+  add_header_above(c("COVID-19 Peak Critical Care Census" = 4, "COVID-19 Critical Care Census Scenarios" = 2), background = c(sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
 }
 
 ```
