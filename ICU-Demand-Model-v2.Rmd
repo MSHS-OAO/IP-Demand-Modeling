@@ -155,7 +155,7 @@ dm_covid_days_df <- dm_covid_days_df %>%
                                                                                                                                                                   (CensusDate >= as.Date("5/22/20", format = "%m/%d/%y") & CENSUS_DEPT == "MSQ 6 EAST" & CENSUS_ROOM %in% as.character(c(601, 606, 608)) == FALSE))),
          
          COVIDPt = (COVID_FLAG %in% c("COVID-POSITIVE", "COVID-PUI", "COVID-SUSC", "COVID-RESOLVED")), 
-         COVIDCensusDay = !is.na(PAT_DAY_INF_STATUS))
+         COVIDCensusDay = PAT_DAY_INF_STATUS %in% c("COVID-19", "PUI - COVID", "SUSC COVID"))
 
 
 # Subset data frame based on census date and remove MSSN
