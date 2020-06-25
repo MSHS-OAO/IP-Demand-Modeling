@@ -60,7 +60,7 @@ if (list.files("J://") == "Presidents") {
 
 covid_trend_start_date <- as.Date("3/12/20", format = "%m/%d/%y")
 
-covid_steady_state_start <- as.Date("6/8/20", format = "%m/%d/%y")
+covid_steady_state_start <- as.Date("6/1/20", format = "%m/%d/%y")
 
 sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
 
