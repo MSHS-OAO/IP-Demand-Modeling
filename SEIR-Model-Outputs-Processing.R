@@ -44,9 +44,10 @@ seir_admit_prob_df_raw <- read_excel(paste0(user_directory, "/SEIR Model Outputs
 # Format SEIR census estimates
 seir_census_df <- seir_census_df_raw %>%
   select(date, model, h_mshs, h_mshs_reg, h_mshs_icu) %>%
-  mutate(date = date(date))
+  mutate(date = date(date),
+         Delta = h_mshs - lag(h_mshs, 1))
 
-colnames(seir_census_df) <- c("Date", "Model", "TotalCensus", "FloorCensus", "ICUCensus")
+colnames(seir_census_df) <- c("Date", "Model", "TotalCensus", "FloorCensus", "ICUCensus", "Delta")
 
 # Format SEIR admission probabilities
 seir_admit_prob_df <- seir_admit_prob_df_raw %>%
@@ -98,15 +99,46 @@ avg_prob_admit <- seir_admit_prob_df %>%
   summarize(AvgProb = mean(SmoothedProbAdm)*100)
 
 # Determine secondary peak for each reintroduction rate and date scenario
-seir_census_df <- seir_census_df %>%
-  mutate(Delta = TotalCensus - lag(TotalCensus, 1))
-
 seir_peaks <- seir_census_df %>%
   filter(Date >= as.Date("7/1/20", format = "%m/%d/%y"),
          Delta > 0) %>%
   group_by(Model) %>%
   summarize(PeakCensus = max(TotalCensus),
-            TotalCensusDate = Date[which.max(TotalCensus)],
+            PeakTotalCensusDate = Date[which.max(TotalCensus)],
             PeakICUCensus = max(ICUCensus),
-            ICUCensusDate = Date[which.max(ICUCensus)])
+            PeakICUCensusDate = Date[which.max(ICUCensus)])
 
+summer_peak_df <- seir_census_df %>%
+  filter(Model == "0.017 2020-04-23")
+
+summer_peak <- summer_peak_df %>%
+  filter(Date >= as.Date("7/1/20", format = "%m/%d/%y"),
+         Delta > 0) %>%
+  summarize(PeakCensus = max(TotalCensus),
+            PeakTotalCensusDate = Date[which.max(TotalCensus)],
+            PeakICUCensus = max(ICUCensus),
+            PeakICUCensusDate = Date[which.max(ICUCensus)])
+
+# Scale potential secondary peak by probability of admission at each site
+summer_peak_rep <- summer_peak[rep(row.names(summer_peak), nrow(avg_prob_admit)), ]
+
+summer_peak_scale <- cbind(avg_prob_admit, summer_peak_rep)
+
+summer_peak_scale <- summer_peak_scale %>%
+  mutate(SiteTotalPeak = AvgProb * PeakCensus / 100,
+         SiteICUPeak = AvgProb * PeakICUCensus / 100)
+
+summer_peak_scale <- summer_peak_scale %>%
+  select(Site, SiteTotalPeak, SiteICUPeak)
+
+# Remove MSSN from site level summary
+site_summer_peak <- summer_peak_scale %>%
+  filter(Site != "MSSN")
+
+# Calculate new MSHS total after removing MSSN
+new_mshs_peak <- site_summer_peak %>%
+  summarize(Site = "MSHS",
+            SiteTotalPeak = sum(SiteTotalPeak),
+            SiteICUPeak = sum(SiteICUPeak))
+
+system_summer_peak <- rbind(site_summer_peak, new_mshs_peak)
