@@ -494,7 +494,8 @@ colnames(seir_admit_prob_df) <- c("Site", "Date", "ProbAdm", "SmoothedProbAdm")
 # Determine average probability of admissions using smoothed data
 avg_prob_admit <- seir_admit_prob_df %>%
   group_by(Site) %>%
-  summarize(AvgProb = mean(SmoothedProbAdm)*100)
+  summarize(AvgProb = mean(SmoothedProbAdm)*100) %>%
+  arrange(desc(AvgProb))
 
 # Determine secondary peak for each reintroduction rate and date scenario
 seir_peaks <- seir_census_df %>%
@@ -544,6 +545,8 @@ system_summer_peak <- rbind(site_summer_peak, new_mshs_peak)
 
 # Set sites as factors
 system_summer_peak$Site <- factor(system_summer_peak$Site, levels = site_order, ordered = TRUE)
+system_summer_peak <- system_summer_peak %>%
+  arrange(Site)
 
 ```
 
@@ -744,6 +747,34 @@ icu_census_project <- function(site) {
 
 ```
 
+```{r Custom function for creating COVID-19 historical census}
+covid_hist_census_peak <- function(site) {
+  site <- site
+
+  # covid_disch_scenarios_site <- covid_census_peak_summary_scenarios %>%
+  #   filter(Site == site)
+  # 
+  # covid_disch_scenarios_site$Site <- NULL
+  
+  covid_icu_hist_site <- covid_icu_hist_peak %>%
+    filter(Site == site)
+
+  covid_icu_hist_site$Site <- NULL
+  
+  kable(covid_icu_hist_site, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Date", "IP Census", "Critical Care Census", "IP Census", "Critical Care Census"),
+      caption = paste(site, " COVID-19 Historical Census")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(1:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(4:5), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(1:5), background = "inherit", color = "inherit") %>%
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
+  add_header_above(c("COVID-19 Historical Peak Census" = 3, "COVID-19 Peak Census Beyond Steady State" = 2), background = c(sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+}
+
+```
+
 ```{r Custom function for creating COVID-19 projection table}
 covid_census_project <- function(site) {
   site <- site
@@ -753,22 +784,22 @@ covid_census_project <- function(site) {
   # 
   # covid_disch_scenarios_site$Site <- NULL
   
-  covid_disch_scenarios_site <- covid_icu_scenarios_cast %>%
+  covid_disch_scenarios_site <- covid_icu_scenario_summary_cast %>%
     filter(Site == site)
 
   covid_disch_scenarios_site$Site <- NULL
   
   kable(covid_disch_scenarios_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Scenario", "Date", "IP Census", "Critical Care Census", 
-                   "25% Peak", "50% Peak"),
+      # col.names =c("Scenario", "Date", "IP Census", "Critical Care Census", 
+      #              "25% Peak", "50% Peak"),
       caption = paste(site, " COVID-19 Critical Care Census Scenarios")) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(1:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:6), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(1:6), background = "inherit", color = "inherit") %>%
+  column_spec(column = c(1), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  # column_spec(column = c(5:6), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(1:4), background = "inherit", color = "inherit") %>%
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  add_header_above(c("COVID-19 Peak Critical Care Census" = 4, "COVID-19 Critical Care Census Scenarios" = 2), background = c(sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+  add_header_above(c(" ", "Scenario 1:" = 1, "Scenario 2:" = 1, "Scenario 3:" = 1), background = c("white", sinai_colors[1], sinai_colors[1], sinai_colors[1]), color = "white", line = FALSE)
 }
 
 ```
@@ -1082,7 +1113,7 @@ seir_system_overall_census <- ggplot(data = seir_census_df, aes(x = Date, y = To
   geom_line() + 
   labs(title = "MSHS COVID Census Predictions", x = "Date", y = "Total Census") +
   theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5), legend.position = "right", legend.box = "vertical", 
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom", legend.box = "vertical", 
         legend.title = element_text(size = 10), legend.text = element_text(size = 8),
         axis.text.x = element_text(angle = 30, hjust = 1)) +
   scale_x_date(limits = c(min(seir_census_df$Date), max(seir_census_df$Date)), breaks = "1 month",
@@ -1094,12 +1125,27 @@ seir_system_icu_census <- ggplot(data = seir_census_df, aes(x = Date, y = ICUCen
   geom_line() + 
   labs(title = "MSHS COVID Critical Care Census Predictions", x = "Date", y = "Total Census") +
   theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5), legend.position = "right", legend.box = "vertical", 
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom", legend.box = "vertical", 
         legend.title = element_text(size = 10), legend.text = element_text(size = 8),
         axis.text.x = element_text(angle = 30, hjust = 1)) +
   scale_x_date(limits = c(min(seir_census_df$Date), max(seir_census_df$Date)), breaks = "1 month",
                date_labels = "%b-%y") +
   scale_color_manual(name = "Reintroduction \nRate & Date", values = sinai_colors[1:4])
+
+# Create table summarizing secondary peak census
+seir_sec_peak_table <- summer_peak %>%
+  select(PeakCensus, PeakICUCensus) %>%
+  mutate(Scenario = "Summer Peak Census Projections")
+
+seir_sec_peak_table <- seir_sec_peak_table[ , c("Scenario", "PeakCensus", "PeakICUCensus")]
+
+seir_sec_peak_kable <- kable(seir_sec_peak_table, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Scenario", "IP Census", "Critical Care Census"),
+      caption = "Predictive Model Secondary Peak Census Projections") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1), border_right = "thin solid lightgray", background = "white") %>%
+  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(1:3), background = "inherit", color = "inherit")
 
 # Plot admissions probabilities
 seir_adm_prob <- ggplot(data = seir_admit_prob_df) +
@@ -1107,7 +1153,7 @@ seir_adm_prob <- ggplot(data = seir_admit_prob_df) +
   geom_line(aes(x = Date, y = SmoothedProbAdm, color = Site)) +
   labs(title = "COVID Admission Probability by Site", x = "Date", y = "Total Census") +
   theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5), legend.position = "right", legend.box = "vertical", 
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom", legend.box = "vertical", 
         legend.title = element_text(size = 10), legend.text = element_text(size = 8),
         axis.text.x = element_text(angle = 30, hjust = 1)) +
   scale_x_date(limits = c(min(seir_admit_prob_df$Date), max(seir_admit_prob_df$Date)), breaks = "1 month",
@@ -1115,7 +1161,12 @@ seir_adm_prob <- ggplot(data = seir_admit_prob_df) +
   scale_color_manual(name = "Site", values = sinai_colors)
 
 # Create kable to visualize admissions probability by site
-adm_prob_kable <- kable(avg_prob_admit, format = "html", escape = FALSE, align = "c", digits = 1,
+avg_prob_admit_table <- avg_prob_admit %>%
+  mutate(ProbPercent = paste0(round(AvgProb, 1), "%"))
+
+avg_prob_admit_table$AvgProb <- NULL
+
+adm_prob_kable <- kable(avg_prob_admit_table, format = "html", escape = FALSE, align = "c", digits = 1,
       col.names =c("Site", "Probability of Admission"),
       caption = "Probability of Admission by Site") %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
@@ -1134,7 +1185,7 @@ seir_peak_census_kable <- kable(system_summer_peak, format = "html", escape = FA
   column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
 
   column_spec(column = c(1:3), background = "inherit", color = "inherit") #%>%
-  add_header_above(c(" " = 1, "Census Predictions" = 2), background = c("white", sinai_colors[1]), color = "white", line = FALSE)
+  # add_header_above(c(" " = 1, "Census Predictions" = 2), background = c("white", sinai_colors[1]), color = "white", line = FALSE)
 
 ```
 
@@ -1197,6 +1248,11 @@ MSQ: Based on unit and bed history described below.</br>
 Based on room and board charges for FY2019 for patients discharged from 01/19-2/20. 
 </br>
 Analysis excludes peds, nursery/neonatal, obstetrics, psych, rehab, and chemical dependency units. ICU days based on unit type and accommodation codes. 
+<h4></h4></br>
+
+<h4><b>DOM SEIR Model:</b></h4>
+**Data Source:**</br>
+Based on "COVID Daily Forecast Model" updated on 06/25. Census and admissions probability outputs provided by Beth Percha on 6/25/2020.
 
 
 ### COVID Peak Census Methodology
@@ -1265,6 +1321,30 @@ monthly_adc_plot(site = "MSM")
 monthly_adc_plot(site = "MSW")
 ```
 
+### DOM SEIR Model
+#### Census Outputs of DOM SEIR Predictive Model
+```{r Display census outputs of SEIR model for reference}
+seir_system_overall_census
+
+seir_system_icu_census
+
+seir_sec_peak_kable
+```
+<h4><b>Reintroduction rate and date of 0.017 2020-04-23 used to represent July/August secondary peak. </b></h4>
+</br>
+
+#### Probability of Admissions by Site
+The average probability of admissions to each site from the SEIR model is used as a scale factor to determine the census peak volume for each site. 
+The total census for MSHS is then updated to exclude MSSN for consistency with remainder of model. 
+```{r Display probability of admissions breakdown}
+seir_adm_prob
+
+adm_prob_kable
+
+seir_peak_census_kable
+
+```
+
 <!-- ## Critical Care Census Projections -->
 ### MSHS
 <h3>MSHS Critical Care Demand</h3>
@@ -1273,6 +1353,8 @@ monthly_adc_plot(site = "MSW")
 icu_census_project(site = "MSHS")
 
 census_additions_table(site = "MSHS")
+
+covid_hist_census_peak(site = "MSHS")
 
 covid_census_project(site = "MSHS")
 
@@ -1285,6 +1367,8 @@ icu_census_project(site = "MSH")
 
 census_additions_table(site = "MSH")
 
+covid_hist_census_peak(site = "MSH")
+
 covid_census_project(site = "MSH")
 
 ```
@@ -1295,6 +1379,8 @@ covid_census_project(site = "MSH")
 icu_census_project(site = "MSQ")
 
 census_additions_table(site = "MSQ")
+
+covid_hist_census_peak(site = "MSQ")
 
 covid_census_project(site = "MSQ")
 
@@ -1307,6 +1393,8 @@ icu_census_project(site = "MSB")
 
 census_additions_table(site = "MSB")
 
+covid_hist_census_peak(site = "MSB")
+
 covid_census_project(site = "MSB")
 
 ```
@@ -1317,6 +1405,8 @@ covid_census_project(site = "MSB")
 icu_census_project(site = "MSBI")
 
 census_additions_table(site = "MSBI")
+
+covid_hist_census_peak(site = "MSBI")
 
 covid_census_project(site = "MSBI")
 
@@ -1329,6 +1419,8 @@ icu_census_project(site = "MSM")
 
 census_additions_table(site = "MSM")
 
+covid_hist_census_peak(site = "MSM")
+
 covid_census_project(site = "MSM")
 
 ```
@@ -1339,6 +1431,8 @@ covid_census_project(site = "MSM")
 icu_census_project(site = "MSW")
 
 census_additions_table(site = "MSW")
+
+covid_hist_census_peak(site = "MSW")
 
 covid_census_project(site = "MSW")
 
