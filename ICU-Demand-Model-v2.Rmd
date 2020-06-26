@@ -86,6 +86,12 @@ ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disc
 rb_charge_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP R&B Charges Jan19 to Feb20 w Accom Code 2020-06-11.xlsx"), 
                                na = c("", "NA"), 
                                col_type = c("text", "text", "text", "text", "text", "text", "text", "date", "numeric"))
+
+# Import census estimates and admissions probability from SEIR model
+seir_census_df_raw <- read_excel(paste0(user_directory, "/SEIR Model Outputs/SEIR Model Census Estimates 2020-06-25.xlsx"))
+
+seir_admit_prob_df_raw <- read_excel(paste0(user_directory, "/SEIR Model Outputs/SEIR Model Admissions Probability by Site 2020-06-25.xlsx"))
+
 # 
 # Import analysis reference
 reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-06-11.xlsx")
@@ -465,6 +471,78 @@ ip_disch_summary <- left_join(ip_disch_summary, ip_disch_admit_type_percent, by 
 ip_disch_summary <- ip_disch_summary[ , c("Site", "AdmitType",
                                           "VolDisch", "DischPerc",
                                           "ICUDays", "ICUADC")]
+
+
+```
+
+```{r Format SEIR census estimates and potential peaks}
+# Format SEIR census estimates
+seir_census_df <- seir_census_df_raw %>%
+  select(date, model, h_mshs, h_mshs_reg, h_mshs_icu) %>%
+  mutate(date = date(date),
+         Delta = h_mshs - lag(h_mshs, 1))
+
+colnames(seir_census_df) <- c("Date", "Model", "TotalCensus", "FloorCensus", "ICUCensus", "Delta")
+
+# Format SEIR admission probabilities
+seir_admit_prob_df <- seir_admit_prob_df_raw %>%
+  select(IP_SITE, day_of_admission, prob_adm, smoothed_prob_adm) %>%
+  mutate(day_of_admission = date(day_of_admission))
+
+colnames(seir_admit_prob_df) <- c("Site", "Date", "ProbAdm", "SmoothedProbAdm")
+
+# Determine average probability of admissions using smoothed data
+avg_prob_admit <- seir_admit_prob_df %>%
+  group_by(Site) %>%
+  summarize(AvgProb = mean(SmoothedProbAdm)*100)
+
+# Determine secondary peak for each reintroduction rate and date scenario
+seir_peaks <- seir_census_df %>%
+  filter(Date >= as.Date("7/1/20", format = "%m/%d/%y"),
+         Delta > 0) %>%
+  group_by(Model) %>%
+  summarize(PeakCensus = max(TotalCensus),
+            PeakTotalCensusDate = Date[which.max(TotalCensus)],
+            PeakICUCensus = max(ICUCensus),
+            PeakICUCensusDate = Date[which.max(ICUCensus)])
+
+# Subset data for July/Aug peak (reintroduction rate and date of 0.017 2020-04-23)
+summer_peak_df <- seir_census_df %>%
+  filter(Model == "0.017 2020-04-23")
+
+summer_peak <- summer_peak_df %>%
+  filter(Date >= as.Date("7/1/20", format = "%m/%d/%y"),
+         Delta > 0) %>%
+  summarize(PeakCensus = max(TotalCensus),
+            PeakTotalCensusDate = Date[which.max(TotalCensus)],
+            PeakICUCensus = max(ICUCensus),
+            PeakICUCensusDate = Date[which.max(ICUCensus)])
+
+# Scale potential secondary peak by probability of admission at each site
+summer_peak_rep <- summer_peak[rep(row.names(summer_peak), nrow(avg_prob_admit)), ]
+
+summer_peak_scale <- cbind(avg_prob_admit, summer_peak_rep)
+
+summer_peak_scale <- summer_peak_scale %>%
+  mutate(SiteTotalPeak = AvgProb * PeakCensus / 100,
+         SiteICUPeak = AvgProb * PeakICUCensus / 100)
+
+summer_peak_scale <- summer_peak_scale %>%
+  select(Site, SiteTotalPeak, SiteICUPeak)
+
+# Remove MSSN from site level summary
+site_summer_peak <- summer_peak_scale %>%
+  filter(Site != "MSSN")
+
+# Calculate new MSHS total after removing MSSN
+new_mshs_peak <- site_summer_peak %>%
+  summarize(Site = "MSHS",
+            SiteTotalPeak = sum(SiteTotalPeak),
+            SiteICUPeak = sum(SiteICUPeak))
+
+system_summer_peak <- rbind(site_summer_peak, new_mshs_peak)
+
+
 
 
 ```
