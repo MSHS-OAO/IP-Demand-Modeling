@@ -1029,6 +1029,69 @@ low_high_flu_month_plot <- ggplot(data = ms_flu_low_high_months_site, aes(x = Si
 
 ```
 
+```{r Create visualizations of basic output of SEIR model}
+# Plot MSHS overall census predictions
+seir_system_overall_census <- ggplot(data = seir_census_df, aes(x = Date, y = TotalCensus, color = Model)) +
+  geom_line() + 
+  labs(title = "MSHS COVID Census Predictions", x = "Date", y = "Total Census") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "right", legend.box = "vertical", 
+        legend.title = element_text(size = 10), legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_date(limits = c(min(seir_census_df$Date), max(seir_census_df$Date)), breaks = "1 month",
+               date_labels = "%b-%y") +
+  scale_color_manual(name = "Reintroduction \nRate & Date", values = sinai_colors[1:4])
+
+# Plot MSHS ICU/Vent census predictions
+seir_system_icu_census <- ggplot(data = seir_census_df, aes(x = Date, y = ICUCensus, color = Model)) +
+  geom_line() + 
+  labs(title = "MSHS COVID Critical Care Census Predictions", x = "Date", y = "Total Census") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "right", legend.box = "vertical", 
+        legend.title = element_text(size = 10), legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_date(limits = c(min(seir_census_df$Date), max(seir_census_df$Date)), breaks = "1 month",
+               date_labels = "%b-%y") +
+  scale_color_manual(name = "Reintroduction \nRate & Date", values = sinai_colors[1:4])
+
+# Plot admissions probabilities
+seir_adm_prob <- ggplot(data = seir_admit_prob_df) +
+  geom_point(aes(x = Date, y = ProbAdm, color = Site)) +
+  geom_line(aes(x = Date, y = SmoothedProbAdm, color = Site)) +
+  labs(title = "COVID Admission Probability by Site", x = "Date", y = "Total Census") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "right", legend.box = "vertical", 
+        legend.title = element_text(size = 10), legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_date(limits = c(min(seir_admit_prob_df$Date), max(seir_admit_prob_df$Date)), breaks = "1 month",
+               date_labels = "%b-%y") +
+  scale_color_manual(name = "Site", values = sinai_colors)
+
+# Create kable to visualize admissions probability by site
+adm_prob_kable <- kable(avg_prob_admit, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Site", "Probability of Admission"),
+      caption = "Probability of Admission by Site") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1), border_right = "thin solid lightgray", background = "white") %>%
+  column_spec(column = c(2), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+
+  column_spec(column = c(1:2), background = "inherit", color = "inherit") #%>%
+  # add_header_above(c(" " = 1, "Census Additions" = 2), background = c("white", sinai_colors[1]), color = "white", line = FALSE)
+
+# Create kable to visualize predicted peak census by site
+seir_peak_census_kable <- kable(system_summer_peak, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Site", "Total COVID Censuus", "Critical Care COVID Census"),
+      caption = "Secondary Peak Predictions by Site") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1), border_right = "thin solid lightgray", background = "white") %>%
+  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+
+  column_spec(column = c(1:3), background = "inherit", color = "inherit") #%>%
+  add_header_above(c(" " = 1, "Census Predictions" = 2), background = c("white", sinai_colors[1]), color = "white", line = FALSE)
+
+```
+
+
 ## {.tabset}
 
 ### Model Updates
