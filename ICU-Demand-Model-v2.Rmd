@@ -542,89 +542,136 @@ new_mshs_peak <- site_summer_peak %>%
 
 system_summer_peak <- rbind(site_summer_peak, new_mshs_peak)
 
-
-
+# Set sites as factors
+system_summer_peak$Site <- factor(system_summer_peak$Site, levels = site_order, ordered = TRUE)
 
 ```
 
-```{r Scale peak COVID IP census data}
-
-# Scale ICU census at peak
-# scale_factors <- data.frame("Scale" = c(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.8, 0.9, 1.0))
-scale_factors_covid <- data.frame("Scale" = c(0.25, 0.5))
-
-# Calculate peak COVID scenarios using the difference between peak census and steady state census
-# covid_icu_scenarios <- covid_census_icu_peak_summary %>%
-#   select(Site, CriticalCareCensus)
-covid_icu_peak_scenarios <- covid_census_icu_peak_summary %>%
-  mutate(PeakIPCensus = IPCensus,
-          PeakCriticalCareCensus = CriticalCareCensus) %>%
-  select(Site, Date, PeakIPCensus, PeakCriticalCareCensus)
-
+```{r COVID steady state for subtraction}
+# Create dataframe of COVID steady state census to subtract from SEIR model peak and historical peak scenarios
 covid_steady_state_subtract <- covid_census_steady_state %>%
   mutate(SSIPADC = IPADC,
          SSCriticalCareADC = CriticalCareADC) %>%
   select(Site, SSIPADC, SSCriticalCareADC)
 
-covid_icu_scenarios <- left_join(covid_icu_peak_scenarios,
+```
+
+```{r Update SEIR model based peak based on steady state census}
+seir_peaks <- left_join(system_summer_peak, covid_steady_state_subtract, by = c("Site" = "Site"))
+  
+seir_peaks_summary <- seir_peaks %>%
+  mutate(TotalPeakBeyondSS = SiteTotalPeak - SSIPADC,
+         ICUPeakBeyondSS = SiteICUPeak - SSCriticalCareADC,
+         Scenario = "DOM Predictive Model")
+
+seir_peaks_summary <- seir_peaks_summary %>%
+  select(Site, TotalPeakBeyondSS, ICUPeakBeyondSS, Scenario)
+
+```
+
+```{r Scale historical peak COVID IP census data}
+
+# Scale ICU census at peak
+scale_factors_covid <- data.frame("Scale" = c(0.25, 0.5))
+
+# Calculate historical peak COVID scenarios using the difference between peak census and steady state census
+# covid_icu_scenarios <- covid_census_icu_peak_summary %>%
+#   select(Site, CriticalCareCensus)
+covid_icu_hist_peak <- covid_census_icu_peak_summary %>%
+  mutate(PeakIPCensus = IPCensus,
+          PeakCriticalCareCensus = CriticalCareCensus) %>%
+  select(Site, Date, PeakIPCensus, PeakCriticalCareCensus)
+
+covid_icu_hist_peak <- left_join(covid_icu_hist_peak,
                                  covid_steady_state_subtract,
                                   by = c("Site" = "Site"))
 
-covid_icu_scenarios <- covid_icu_scenarios %>%
+covid_icu_hist_peak <- covid_icu_hist_peak %>%
   mutate(PeakBeyondSSIPADC = PeakIPCensus - SSIPADC,
          PeakBeyondSSCriticalCareADC = PeakCriticalCareCensus - SSCriticalCareADC)
 
-covid_icu_scenarios[ , c("SSIPADC", "SSCriticalCareADC")] <- NULL
+covid_icu_hist_peak[ , c("SSIPADC", "SSCriticalCareADC")] <- NULL
 
-covid_icu_scenarios <- melt(covid_icu_scenarios, id.vars = c("Site", "Date"),
-                            measure.vars = c("PeakIPCensus", "PeakCriticalCareCensus",
-                                             "PeakBeyondSSIPADC", "PeakBeyondSSCriticalCareADC"))
+# covid_icu_scenarios <- melt(covid_icu_scenarios, id.vars = c("Site", "Date"),
+#                             measure.vars = c("PeakIPCensus", "PeakCriticalCareCensus",
+#                                              "PeakBeyondSSIPADC", "PeakBeyondSSCriticalCareADC"))
+# 
+# covid_icu_scenarios <- covid_icu_scenarios %>%
+#   mutate(Scenario = ifelse(variable == "PeakIPCensus" | variable == "PeakCriticalCareCensus", 
+#                            "COVID Peak", "COVID Peak Beyond Steady State"),
+#          CensusType = ifelse(variable == "PeakIPCensus" | variable == "PeakBeyondSSIPADC", "IPADC", "CriticalCareADC"),
+#          Date = as_date(ifelse(Scenario == "COVID Peak", Date, NA)))
+# 
+# covid_icu_scenarios$variable <- NULL
+# 
+# covid_icu_scenarios <- dcast(covid_icu_scenarios, Site + Scenario + Date ~ CensusType, 
+#                              value.var = "value")
+# 
+# covid_icu_scenarios <- covid_icu_scenarios %>%
+#   arrange(Scenario, Site)
 
-covid_icu_scenarios <- covid_icu_scenarios %>%
-  mutate(Scenario = ifelse(variable == "PeakIPCensus" | variable == "PeakCriticalCareCensus", 
-                           "COVID Peak", "COVID Peak Beyond Steady State"),
-         CensusType = ifelse(variable == "PeakIPCensus" | variable == "PeakBeyondSSIPADC", "IPADC", "CriticalCareADC"),
-         Date = as_date(ifelse(Scenario == "COVID Peak", Date, NA)))
-
-covid_icu_scenarios$variable <- NULL
-
-covid_icu_scenarios <- dcast(covid_icu_scenarios, Site + Scenario + Date ~ CensusType, 
-                             value.var = "value")
-
-covid_icu_scenarios <- covid_icu_scenarios %>%
-  arrange(Scenario, Site)
-
+# Determine lengths to replicate data frames for looking at historical % scenarios
 scale_length_covid <- nrow(scale_factors_covid)
-covid_icu_length <- nrow(covid_icu_scenarios)
+covid_icu_length <- nrow(covid_icu_hist_peak)
 
-# Replicate data frames
+# Replicate data frames to 
 scale_factors_covid <- (scale_factors_covid[rep(rownames(scale_factors_covid), covid_icu_length), ])
 scale_factors_covid <- data.frame("Scale" = scale_factors_covid)
 
 scale_factors_covid <- scale_factors_covid[order(scale_factors_covid$Scale), ]
 
-covid_icu_scenarios_scale <- covid_icu_scenarios[rep(rownames(covid_icu_scenarios), scale_length_covid), ]
-covid_icu_scenarios_scale = cbind(covid_icu_scenarios_scale, Scale = scale_factors_covid)
+covid_icu_hist_scenarios_scale <- covid_icu_hist_peak %>%
+  select(Site, PeakBeyondSSIPADC, PeakBeyondSSCriticalCareADC)
+covid_icu_hist_scenarios_scale <- covid_icu_hist_scenarios_scale[rep(rownames(covid_icu_hist_scenarios_scale), scale_length_covid), ]
+covid_icu_hist_scenarios_scale = cbind(covid_icu_hist_scenarios_scale, Scale = scale_factors_covid)
 
 # Calculate census for different scenarios based on historical data and scale
-covid_icu_scenarios_scale <- covid_icu_scenarios_scale %>%
-  mutate(ScaledICUCensus = ifelse(Scenario == "COVID Peak", NA, CriticalCareADC * Scale),
-         ScaleName = paste0(Scale*100, "% Peak"))
+covid_icu_hist_scenarios_scale <- covid_icu_hist_scenarios_scale %>%
+  mutate(ScaledCriticalCareCensus = PeakBeyondSSCriticalCareADC * Scale,
+         Scenario = paste0(Scale*100, "% Historical Peak"))
 
-# Set site and scale name to factors before casting
-covid_icu_scenarios_scale$ScaleName <- factor(covid_icu_scenarios_scale$ScaleName,
-                                   levels = c("25% Peak", "50% Peak"), ordered = TRUE)
+# covid_icu_hist_scenarios_scale <- covid_icu_hist_scenarios_scale %>%
+#   mutate(ScaledICUCensus = ifelse(Scenario == "COVID Peak", NA, CriticalCareADC * Scale),
+#          ScaleName = paste0(Scale*100, "% Peak"))
+```
 
-# Format casted dataframe to italicize and grey out NAs
-covid_icu_scenarios_scale_kable <- covid_icu_scenarios_scale %>%
-    mutate(Date = cell_spec(Date, format = "html", italic = ifelse(is.na(Date), TRUE, FALSE),
-                            color = ifelse(is.na(Date), "lightgrey", "black")),
-           ScaledICUCensus = cell_spec(round(ScaledICUCensus, 1), italic = ifelse(is.na(ScaledICUCensus), TRUE, FALSE),
-                            color = ifelse(is.na(ScaledICUCensus), "lightgrey", "black")))
+```{r Combine SEIR scenario and historical peak scenarios}
+
+covid_icu_hist_scenarios_summary <- covid_icu_hist_scenarios_scale %>%
+  select(Site, ScaledCriticalCareCensus, Scenario)
+
+colnames(covid_icu_hist_scenarios_summary) <- c("Site", "CriticalCareCensus", "Scenario")
+
+seir_scenario_summary <- seir_peaks_summary %>%
+  select(Site, ICUPeakBeyondSS, Scenario)
+
+colnames(seir_scenario_summary) <- c("Site", "CriticalCareCensus", "Scenario")
+
+covid_icu_scenario_summary <- rbind(covid_icu_hist_scenarios_summary, seir_scenario_summary)
+
+covid_icu_scenario_summary$Scenario <- factor(covid_icu_scenario_summary$Scenario,
+                                              levels = c("DOM Predictive Model", "25% Historical Peak", "50% Historical Peak"),
+                                              ordered = TRUE)
+
+covid_icu_scenario_summary$Metric <- "Critical Care Census"
+
+covid_icu_scenario_summary_cast <- dcast(covid_icu_scenario_summary, Site + Metric ~ Scenario, value.var = "CriticalCareCensus")
 
 
-# Cast data frame for kables
-covid_icu_scenarios_cast <-  dcast(covid_icu_scenarios_scale_kable, Site + Scenario + Date + IPADC + CriticalCareADC ~ ScaleName, value.var = "ScaledICUCensus")
+# # Set site and scale name to factors before casting
+# covid_icu_hist_scenarios_scale$ScaleName <- factor(covid_icu_scenarios_scale$ScaleName,
+#                                    levels = c("25% Peak", "50% Peak"), ordered = TRUE)
+# 
+# # Format casted dataframe to italicize and grey out NAs
+# covid_icu_scenarios_scale_kable <- covid_icu_scenarios_scale %>%
+#     mutate(Date = cell_spec(Date, format = "html", italic = ifelse(is.na(Date), TRUE, FALSE),
+#                             color = ifelse(is.na(Date), "lightgrey", "black")),
+#            ScaledICUCensus = cell_spec(round(ScaledICUCensus, 1), italic = ifelse(is.na(ScaledICUCensus), TRUE, FALSE),
+#                             color = ifelse(is.na(ScaledICUCensus), "lightgrey", "black")))
+# 
+# 
+# # Cast data frame for kables
+# covid_icu_scenarios_cast <-  dcast(covid_icu_scenarios_scale_kable, Site + Scenario + Date + IPADC + CriticalCareADC ~ ScaleName, value.var = "ScaledICUCensus")
 
 ```
 
