@@ -105,6 +105,9 @@ covid_census_compiled <- covid_census_compiled %>%
 
 covid_census_compiled$DuplMRNDate <- NULL
 
+setwd(user_directory)
+setwd("..\\..\\..\\COVID Scenario Testing\\Epic COVID Repo")
+
 # Export patient level census data to excel
 write_xlsx(covid_census_compiled, paste0("COVID MRN Daily Census Export ", Sys.Date(), ".xlsx"))
 
