@@ -74,7 +74,7 @@ covid_ip_days_df_raw <- read.csv(paste0(user_directory, "/DataMart/COVID_IP_PATI
 
 
 # Import Epic daily COVID census
-epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-06-24.xlsx"))
+epic_covid_census_raw <- read_excel(paste0(user_directory, "/Epic COVID Repo/COVID MRN Daily Census Export 2020-07-08.xlsx"))
 
 # Import FY2019 IP discharge data
 ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
