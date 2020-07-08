@@ -1,0 +1,180 @@
+---
+  title: "Adult Med Surg Critical Care Demand"
+author: "HSO"
+date: "5/20/2020"
+output: html_document
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r Install and load packages}
+# Code for analyzing historical COVID-19 IP census, admissions, and discharges ----------------------
+
+#Install and load necessary packages --------------------
+#install.packages("readraw_dfl")
+#install.packages("writeraw_dfl")
+#install.packages("ggplot2")
+#install.packages("lubridate")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("svDialogs")
+#install.packages("stringr")
+#install.packages("formattable")
+# install.packages("ggpubr")
+# install.packages("rprojroot")
+
+# Load libraries ------------------------
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
+library(reshape2)
+library(knitr)
+library(rmarkdown)
+library(kableExtra)
+
+```
+
+```{r Determine drive mapping}
+rm(list = ls())
+
+if (list.files("J://") == "Presidents") {
+  user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+} else {
+  user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+}
+
+```
+
+
+```{r Import raw data}
+# Set working directory and select raw data ----------------------------
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
+
+site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
+
+flu_season_order <- c("Non-Flu", "Flu")
+
+# Import FY2019 flu test data for Epic sites
+epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites FY2019 Flu Test Data 2020-07-08.xlsx"))
+
+# Import FY2019 flu test data for MSBI
+msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI FY2019 Flu Test Data 2020-07-08.xlsx"))
+
+# Import FY2019 IP discharge data
+ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
+                              col_types = c("text", "text", "text", "text", "date", "date", "date",
+                                            "text", "text", "text", "text", "text", "text", "text",
+                                            "numeric", "numeric"))
+
+# 
+# Import analysis reference
+reference_file <- paste0(user_directory, "/Flu Test Data/Analysis Reference 2020-07-08.xlsx")
+ref_sheets <- excel_sheets(reference_file)
+
+ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
+
+site_ref <- ref_data[[1]]
+dispo_ref <- ref_data[[2]]
+
+```
+
+```{r Preprocess data for Epic sites}
+epic_sites_flu_df <- epic_sites_flu_raw
+
+# Filter out non-ED or non-IP flu tests
+epic_sites_flu_df <- epic_sites_flu_df %>%
+  filter(`Patient Class` == "Emergency" | `Patient Class` == "Inpatient" & !is.na(`Patient Class`))
+
+# Crosswalk sites
+epic_sites_flu_df <- left_join(epic_sites_flu_df, site_ref, by = c("Location" = "Location"))
+
+# Crosswalk ED disposition
+epic_sites_flu_df[is.na(epic_sites_flu_df$`ED Disposition`), "ED Disposition"] <- "No ED Dispo"
+epic_sites_flu_df <- left_join(epic_sites_flu_df, dispo_ref, by = c("ED Disposition" = "EDDispo"))
+
+# Determine order and result months
+epic_sites_flu_df <- epic_sites_flu_df %>%
+  mutate(OrderYear = year(`Order Date`),
+         OrderMonth = month(`Order Date`), 
+         ResultYear = year(`LAST RESULT DATE`),
+         ResultMonth = month(`LAST RESULT DATE`),
+         TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
+         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & EDDispoRollUp == "Admitted"))
+
+# Subset dataframe
+epic_sites_flu_subset <- epic_sites_flu_df %>%
+  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+         `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
+         `LAST RESULT DATE`, ResultYear, ResultMonth, 
+         TestResult, EDDispoRollUp, AdmittedIP)
+
+colnames(epic_sites_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+                                     "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
+                                     "ResultDate", "ResultYear", "ResultMonth", 
+                                     "TestResult", "EDDispoRollUp", "AdmittedIP")
+
+```
+
+```{r Preprocess MSBI data}
+msbi_flu_df <- msbi_flu_raw
+
+# Create column for site name
+msbi_flu_df$Site <- "MSBI"
+
+# Crosswalk ED disposition
+msbi_flu_df[is.na(msbi_flu_df$`ED Disposition`), "ED Disposition"] <- "No ED Dispo"
+msbi_flu_df <- left_join(msbi_flu_df, dispo_ref, by = c("ED Disposition" = "EDDispo"))
+
+# Determine order and result months
+msbi_flu_df <- msbi_flu_df %>%
+  mutate(OrderYear = year(`Order Date`),
+         OrderMonth = month(`Order Date`), 
+         ResultYear = year(`LAST RESULT DATE`),
+         ResultMonth = month(`LAST RESULT DATE`),
+         TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
+         AdmittedIP = NA) #  Will need to crosswalk MSBI data with IP discharge data to determine if patient has been admitted.
+
+# Subset dataframe
+msbi_flu_subset <- msbi_flu_df %>%
+  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+         `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
+         `LAST RESULT DATE`, ResultYear, ResultMonth, 
+         TestResult, EDDispoRollUp, AdmittedIP)
+
+colnames(msbi_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+                                     "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
+                                     "ResultDate", "ResultYear", "ResultMonth", 
+                                     "TestResult", "EDDispoRollUp", "AdmittedIP")
+
+```
+
+```{r Combine data for Epic sites and MSBI}
+system_flu_subset <- rbind(epic_sites_flu_subset, msbi_flu_subset)
+
+```
+
+```{r Crosswalk with IP discharge data}
+ip_disch_subset <- ip_disch_df_raw %>%
+  select(`Encounter No`, Msmrn, `Facility Msx`,
+         `Admit Type Desc Msx`, `Admit Dt Src`, `Dsch Dt Src`,
+         `Icu Days Msx`, `Los No Src`) %>%
+  mutate(VisitNumber = ifelse(substr(`Encounter No`, nchar(`Encounter No`), nchar(`Encounter No`)) == "I",
+                              substr(`Encounter No`, 1, nchar(`Encounter No`) - 1), `Encounter No`))
+
+system_test <- left_join(system_flu_subset, ip_disch_subset, by = c("VisitNumber" = "VisitNumber"))
+
+system_test$Match <- ifelse(is.na(system_test$`Encounter No`), FALSE, TRUE)
+
+system_test_summary <- system_test %>%
+  group_by(Site, AdmittedIP, Match) %>%
+  summarize(Count = n())
+```
