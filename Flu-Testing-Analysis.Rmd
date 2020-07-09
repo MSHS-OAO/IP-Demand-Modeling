@@ -64,10 +64,10 @@ site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
 flu_season_order <- c("Non-Flu", "Flu")
 
 # Import FY2019 flu test data for Epic sites
-epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites FY2019 Flu Test Data 2020-07-08.xlsx"))
+epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites FY2019 Flu Test Data 2020-07-09.xlsx"))
 
 # Import FY2019 flu test data for MSBI
-msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI FY2019 Flu Test Data 2020-07-08.xlsx"))
+msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI FY2019 Flu Test Data 2020-07-09.xlsx"))
 
 # Import FY2019 IP discharge data
 ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
@@ -97,9 +97,6 @@ epic_sites_flu_df <- epic_sites_flu_df %>%
 # Crosswalk sites
 epic_sites_flu_df <- left_join(epic_sites_flu_df, site_ref, by = c("Location" = "Location"))
 
-# Crosswalk ED disposition
-epic_sites_flu_df[is.na(epic_sites_flu_df$`ED Disposition`), "ED Disposition"] <- "No ED Dispo"
-epic_sites_flu_df <- left_join(epic_sites_flu_df, dispo_ref, by = c("ED Disposition" = "EDDispo"))
 
 # Determine order and result months
 epic_sites_flu_df <- epic_sites_flu_df %>%
@@ -108,19 +105,19 @@ epic_sites_flu_df <- epic_sites_flu_df %>%
          ResultYear = year(`LAST RESULT DATE`),
          ResultMonth = month(`LAST RESULT DATE`),
          TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
-         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & EDDispoRollUp == "Admitted"))
+         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & `ED Disch Disposition` == "Admit"))
 
 # Subset dataframe
 epic_sites_flu_subset <- epic_sites_flu_df %>%
   select(Site, Department, MRN, `Visit Number`, `Patient Class`,
          `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
          `LAST RESULT DATE`, ResultYear, ResultMonth, 
-         TestResult, EDDispoRollUp, AdmittedIP)
+         TestResult, `ED Disch Disposition`, AdmittedIP)
 
 colnames(epic_sites_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
                                      "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
                                      "ResultDate", "ResultYear", "ResultMonth", 
-                                     "TestResult", "EDDispoRollUp", "AdmittedIP")
+                                     "TestResult", "EDDispo", "AdmittedIP")
 
 ```
 
@@ -129,10 +126,6 @@ msbi_flu_df <- msbi_flu_raw
 
 # Create column for site name
 msbi_flu_df$Site <- "MSBI"
-
-# Crosswalk ED disposition
-msbi_flu_df[is.na(msbi_flu_df$`ED Disposition`), "ED Disposition"] <- "No ED Dispo"
-msbi_flu_df <- left_join(msbi_flu_df, dispo_ref, by = c("ED Disposition" = "EDDispo"))
 
 # Determine order and result months
 msbi_flu_df <- msbi_flu_df %>%
@@ -148,17 +141,202 @@ msbi_flu_subset <- msbi_flu_df %>%
   select(Site, Department, MRN, `Visit Number`, `Patient Class`,
          `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
          `LAST RESULT DATE`, ResultYear, ResultMonth, 
-         TestResult, EDDispoRollUp, AdmittedIP)
+         TestResult, `ED Disch Disposition`, AdmittedIP)
 
 colnames(msbi_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
                                      "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
                                      "ResultDate", "ResultYear", "ResultMonth", 
-                                     "TestResult", "EDDispoRollUp", "AdmittedIP")
+                                     "TestResult", "EDDispo", "AdmittedIP")
 
 ```
 
 ```{r Combine data for Epic sites and MSBI}
 system_flu_subset <- rbind(epic_sites_flu_subset, msbi_flu_subset)
+
+```
+
+```{r Create dataframe with total days in each month}
+fy2019_dates <- seq(from = as.Date("1/1/19", format = "%m/%d/%y"), to = as.Date("12/31/19", format = "%m/%d/%y"),
+                    by = 1)
+
+days_per_month <- data.frame("Date" = fy2019_dates)
+
+days_per_month <- days_per_month %>%
+  mutate(Month = month(Date),
+         Year = year(Date),
+         MonthYear = as.Date(paste0(Month, "/1/", Year), format = "%m/%d/%Y"))
+
+days_per_month <- days_per_month %>%
+  group_by(Year, Month, MonthYear) %>%
+  summarize(DaysPerMonth = n())
+
+```
+
+```{r Format flu data for graphing volume trends}
+
+# Determine number of days in each month
+system_daily_volume <- system_flu_subset %>%
+  group_by(OrderYear, OrderMonth, OrderDate) %>%
+  summarize(Count = n())
+
+system_flu_subset$Site <- factor(system_flu_subset$Site, levels = site_order, ordered = TRUE)
+
+system_flu_subset <- system_flu_subset %>%
+  mutate(OrderMonthYear = as.Date(paste0(OrderMonth, "/1/", OrderYear), format = "%m/%d/%Y")) %>%
+  arrange(Site)
+
+system_flu_subset <- left_join(system_flu_subset, days_per_month[ , c("MonthYear", "DaysPerMonth")], 
+                               by = c("OrderMonthYear" = "MonthYear"))
+
+# Summarize data for graphing
+site_daily_flu_volume <- system_flu_subset %>%
+  group_by(Site, OrderDate) %>%
+  summarize(VolumeOrdered = n())
+
+site_monthly_flu_volume <- system_flu_subset %>%
+  group_by(Site, OrderMonthYear, DaysPerMonth) %>%
+  summarize(VolumeOrdered = n()) %>%
+  mutate(DailyAverage = VolumeOrdered / DaysPerMonth) 
+
+site_monthly_flu_volume_melt <- melt(site_monthly_flu_volume, 
+                                     id.vars = c("Site", "OrderMonthYear"),
+                                     measure.vars = c("VolumeOrdered", "DailyAverage"))
+
+flu_facet_labels <- c(VolumeOrdered = "Total Volume Ordered", DailyAverage = "Daily Average")
+
+ggplot(data = site_monthly_flu_volume_melt, aes(x = OrderMonthYear, y = value)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = flu_facet_labels)) +
+  labs(title = "FY2019 IP and ED Flu Tests by Site", x = "Month", y = "Volume of Tests") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b-%y")
+  
+
+```
+
+```{r Graph percentage of positive tests}
+site_test_results <- system_flu_subset %>%
+  group_by(Site, OrderDate, OrderMonthYear) %>%
+  summarize(PositiveTests = sum(TestResult == "Flu Positive"),
+            TotalTests = n()) %>%
+  mutate(PercentPositive = PositiveTests / TotalTests * 100)
+
+site_monthly_test_results <- site_test_results %>%
+  group_by(Site, OrderMonthYear) %>%
+  summarize(PositiveTests = sum(PositiveTests),
+            TotalTests = sum(TotalTests)) %>%
+  mutate(PercentPositive = PositiveTests / TotalTests * 100)
+
+site_monthly_test_results_melt <- melt(site_monthly_test_results, id.vars = c("Site", "OrderMonthYear"),
+                                       measure.vars = c("PositiveTests", "PercentPositive"))
+
+test_results_facet <- c(PositiveTests = "Volume of Tests", PercentPositive = "% Positive")
+
+ggplot(data = site_monthly_test_results_melt, aes(x = OrderMonthYear, y = value)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = test_results_facet)) +
+  labs(title = "FY2019 IP and ED Flu Tests by Site", x = "Month", y = "Positive Flu Tests") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b-%y")
+
+```
+
+```{r Track positive tests that were admitted}
+flu_admitted_positives <- system_flu_subset %>%
+  filter(TestResult == "Flu Positive" & AdmittedIP)
+
+site_admitted_positives <- flu_admitted_positives %>%
+  group_by(Site, OrderDate, OrderMonthYear, PtClass) %>%
+  summarize(Admits = n())
+  
+site_admitted_positives_monthly <- site_admitted_positives %>%
+  group_by(Site, OrderMonthYear) %>%
+  summarize(Admits = sum(Admits))
+
+site_admitted_positives_monthly <- left_join(site_admitted_positives_monthly, 
+                                             days_per_month[ , c("MonthYear", "DaysPerMonth")],
+                                             by = c("OrderMonthYear" = "MonthYear"))
+
+site_admitted_positives_monthly <- site_admitted_positives_monthly %>%
+  mutate(AverageAdmissions = Admits / DaysPerMonth)
+```
+
+```{r Test logic for multiple match criteria}
+test_df <- data.frame(MRN = c(100, 101, 102),
+                      TestDate = c(as.Date("3/4/20", format = "%m/%d/%y"),
+                                   as.Date("9/10/20", format = "%m/%d/%y"),
+                                   as.Date("8/4/20", format = "%m/%d/%y")))
+
+admit_disch_df <- data.frame(MRN = c(101, 102, 95, 101),
+                             Visit = c("A", "B", "C", "D"),
+                             AdmitDate = c(as.Date("9/10/20", format = "%m/%d/%y"),
+                                   as.Date("8/5/20", format = "%m/%d/%y"),
+                                   as.Date("3/4/20", format = "%m/%d/%y"),
+                                   as.Date("6/7/20", format = "%m/%d/%y")),
+                             DischDate = c(as.Date("9/15/20", format = "%m/%d/%y"),
+                                   as.Date("8/20/20", format = "%m/%d/%y"),
+                             as.Date("3/10/20", format = "%m/%d/%y"),
+                             as.Date("7/1/20", format = "%m/%d/%y")),
+                             stringsAsFactors = FALSE)
+                            
+# test_df <- test_df %>%
+#   mutate(ValidAdmit = (MRN %in% admit_disch_df$MRN & TestDate >= (admit_disch_df$AdmitDate - 1) & TestDate <= admit_disch_df$DischDate))
+
+test_df <- test_df %>%
+  mutate(Visit = NA,
+         AdmitDate = NA,
+         DischDate = NA)
+
+for (k in 1:(nrow(test_df)-1)) {
+  mrn_df <- NULL
+  print(k)
+  if (test_df$MRN[k] %in% admit_disch_df$MRN) {
+    mrn_df <- admit_disch_df %>%
+      filter(MRN == test_df$MRN[k]) %>%
+      arrange(AdmitDate) %>%
+      mutate(TestWithinStay = test_df$TestDate[k] >= (AdmitDate - 1) & test_df$TestDate[k] <= DischDate, )
+    
+    # test_df$Visit[k] <- mrn_df$Visit[mrn_df$TestWithinStay]
+    # test_df$AdmitDate[k] <- mrn_df$AdmitDate[mrn_df$TestWithinStay]
+    # test_df$DischDate[k] <- mrn_df$DischDate[mrn_df$TestWithinStay]
+    
+    test_df[k, c("Visit", "AdmitDate", "DischDate")] <- mrn_df[mrn_df$TestWithinStay,
+                                                               c("Visit", "AdmitDate", "DischDate")]
+    
+    
+    print(nrow(mrn_df))
+    
+  } else {
+    print("No Match")
+  }
+}
+
+test_df <- test_df %>%
+  mutate(AdmitDate = as.Date(AdmitDate, origin = "1970-01-01"),
+         DischDate = as.Date(DischDate, origin = "1970-01-01"))
+
 
 ```
 
