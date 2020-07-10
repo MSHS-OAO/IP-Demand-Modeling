@@ -363,6 +363,11 @@ system_test <- left_join(system_flu_crosswalk, ip_disch_subset, by = c("VisitNum
 
 system_test$Match <- ifelse(is.na(system_test$`Encounter No`), FALSE, TRUE)
 
+```
+
+Patients assumed to be admitted if patient class is Inpatient or if patient class is Emergency and ED disposition is Admit.
+```{r Determine percent of admitted patients matched in IP discharge data}
+
 system_test_summary <- system_test %>%
   group_by(Site, PtClass, AdmittedIP, Match) %>%
   summarize(Count = n())
@@ -393,6 +398,54 @@ kable(admit_pt_match_table, format = "html", escape = FALSE, align = "c", digits
   column_spec(column = c(2:4), background = "inherit", color = "inherit") %>%
   collapse_rows()
 
+```
 
+```{r Test code to search by MRN and compare test date to admit and discharge dates}
+
+# Create a dataframe with matched encounters
+matched_df <- system_test %>%
+  filter(!is.na(`Encounter No`))
+
+# Create a dataframe with un-matched encounters
+test_df <- system_test %>%
+  filter(is.na(`Encounter No`))
+
+test_df_copy <- system_test %>%
+  filter(is.na(`Encounter No`))
+
+for(k in 1:nrow(test_df)) {
+  mrn_df <- NULL
+  # print(k)
+  if(test_df$MRN[k] %in% ip_disch_subset$Msmrn) {
+    # Determine if test date is within 1 day of admit date and before discharge
+    mrn_df <- ip_disch_subset %>%
+      filter(Msmrn == test_df$MRN[k]) %>%
+      arrange(`Admit Dt Src`) %>%
+      mutate(TestWithinStay = (test_df$OrderDate[k] >= (`Admit Dt Src` - 1) 
+                               & test_df$OrderDate[k] <= `Dsch Dt Src`), )
+    # print(paste0("MRN Matches: ", nrow(mrn_df)))
+    
+    matches <- mrn_df[mrn_df$TestWithinStay, ]
+    
+    # print(paste0("Test within stay: ", nrow(matches)))
+    if(nrow(matches) != 0) {
+      test_df[k, c("Encounter No", "Msmrn", "Facility Msx", 
+                   "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
+                   "Icu Days Msx", "Los No Src")] <- 
+        matches[1, c("Encounter No", "Msmrn", "Facility Msx", 
+                     "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
+                     "Icu Days Msx", "Los No Src")]
+        
+    }
+
+    } else {
+    test_df[k, ] <- test_df[k, ]
+  }
+}
+
+test_df_summary <- test_df %>%
+  group_by(Site, PtClass, AdmittedIP) %>%
+  summarize(StillNotMatched = sum(is.na(`Encounter No`)),
+            NowMatched = sum(!is.na(`Encounter No`)))
 
 ```
