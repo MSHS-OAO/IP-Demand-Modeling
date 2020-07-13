@@ -1,8 +1,12 @@
 ---
-  title: "Adult Med Surg Critical Care Demand"
+title: "Flu Test Data Analysis"
 author: "HSO"
-date: "5/20/2020"
-output: html_document
+date: "07/13/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
 ---
   
 ```{r setup, include=FALSE}
@@ -172,6 +176,8 @@ days_per_month <- days_per_month %>%
 
 ```
 
+### Flu Test Volume
+#### FY2019 Flu Test Volume (ED and IP Only)
 ```{r Format flu data for graphing volume trends}
 
 # Determine number of days in each month
@@ -225,6 +231,8 @@ ggplot(data = site_monthly_flu_volume_melt, aes(x = OrderMonthYear, y = value)) 
 
 ```
 
+### Positive Flu Tests
+#### FY2019 Flu Test Volume with Positive Results (ED and IP Only)
 ```{r Graph percentage of positive tests}
 site_test_results <- system_flu_subset %>%
   group_by(Site, OrderDate, OrderMonthYear) %>%
@@ -263,6 +271,8 @@ ggplot(data = site_monthly_test_results_melt, aes(x = OrderMonthYear, y = value)
 
 ```
 
+### Positive Flu Admissions
+Patients assumed to be admitted if patient class is Inpatient or if patient class is Emergency and ED disposition is Admit.
 ```{r Track positive tests that were admitted}
 flu_admitted_positives <- system_flu_subset %>%
   filter(TestResult == "Flu Positive" & AdmittedIP)
@@ -281,64 +291,32 @@ site_admitted_positives_monthly <- left_join(site_admitted_positives_monthly,
 
 site_admitted_positives_monthly <- site_admitted_positives_monthly %>%
   mutate(AverageAdmissions = Admits / DaysPerMonth)
+
+positive_admits_melt <- melt(site_admitted_positives_monthly, 
+                                     id.vars = c("Site", "OrderMonthYear"),
+                                     measure.vars = c("Admits", "AverageAdmissions"))
+
+positive_admits_facet <- c(Admits = "Total Patients", AverageAdmissions = "Daily Average")
+
+ggplot(data = positive_admits_melt, aes(x = OrderMonthYear, y = value)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = positive_admits_facet)) +
+  labs(title = "FY2019 Positive Flu Tests with Admission (ED and IP)", x = "Month", y = "Positive Flu Tests") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b-%y")
 ```
 
-```{r Test logic for multiple match criteria}
-test_df <- data.frame(MRN = c(100, 101, 102),
-                      TestDate = c(as.Date("3/4/20", format = "%m/%d/%y"),
-                                   as.Date("9/10/20", format = "%m/%d/%y"),
-                                   as.Date("8/4/20", format = "%m/%d/%y")))
-
-admit_disch_df <- data.frame(MRN = c(101, 102, 95, 101),
-                             Visit = c("A", "B", "C", "D"),
-                             AdmitDate = c(as.Date("9/10/20", format = "%m/%d/%y"),
-                                   as.Date("8/5/20", format = "%m/%d/%y"),
-                                   as.Date("3/4/20", format = "%m/%d/%y"),
-                                   as.Date("6/7/20", format = "%m/%d/%y")),
-                             DischDate = c(as.Date("9/15/20", format = "%m/%d/%y"),
-                                   as.Date("8/20/20", format = "%m/%d/%y"),
-                             as.Date("3/10/20", format = "%m/%d/%y"),
-                             as.Date("7/1/20", format = "%m/%d/%y")),
-                             stringsAsFactors = FALSE)
-                            
-# test_df <- test_df %>%
-#   mutate(ValidAdmit = (MRN %in% admit_disch_df$MRN & TestDate >= (admit_disch_df$AdmitDate - 1) & TestDate <= admit_disch_df$DischDate))
-
-test_df <- test_df %>%
-  mutate(Visit = NA,
-         AdmitDate = NA,
-         DischDate = NA)
-
-for (k in 1:(nrow(test_df)-1)) {
-  mrn_df <- NULL
-  print(k)
-  if (test_df$MRN[k] %in% admit_disch_df$MRN) {
-    mrn_df <- admit_disch_df %>%
-      filter(MRN == test_df$MRN[k]) %>%
-      arrange(AdmitDate) %>%
-      mutate(TestWithinStay = test_df$TestDate[k] >= (AdmitDate - 1) & test_df$TestDate[k] <= DischDate, )
-    
-    # test_df$Visit[k] <- mrn_df$Visit[mrn_df$TestWithinStay]
-    # test_df$AdmitDate[k] <- mrn_df$AdmitDate[mrn_df$TestWithinStay]
-    # test_df$DischDate[k] <- mrn_df$DischDate[mrn_df$TestWithinStay]
-    
-    test_df[k, c("Visit", "AdmitDate", "DischDate")] <- mrn_df[mrn_df$TestWithinStay,
-                                                               c("Visit", "AdmitDate", "DischDate")]
-    
-    
-    print(nrow(mrn_df))
-    
-  } else {
-    print("No Match")
-  }
-}
-
-test_df <- test_df %>%
-  mutate(AdmitDate = as.Date(AdmitDate, origin = "1970-01-01"),
-         DischDate = as.Date(DischDate, origin = "1970-01-01"))
-
-
-```
 
 ```{r Preprocess IP discharge data}
 
@@ -365,7 +343,43 @@ system_test$Match <- ifelse(is.na(system_test$`Encounter No`), FALSE, TRUE)
 
 ```
 
-Patients assumed to be admitted if patient class is Inpatient or if patient class is Emergency and ED disposition is Admit.
+### Crosswalk Flu and IP Billing
+*Crosswalk based on encounter number (not valid for MSBI)*
+```{r Summarize positive flu patients admitted and matched}
+positive_admit_pt_match_summary <- system_test %>%
+  filter(TestResult == "Flu Positive" & AdmittedIP) %>%
+  group_by(Site, Match) %>%
+  summarize(Count = n())
+
+positive_admit_pt_match_cast <- dcast(positive_admit_pt_match_summary, Site ~ Match, value.var = "Count")
+
+colnames(positive_admit_pt_match_cast) <- c("Site", "VolNotMatched", "VolMatched")
+
+positive_admit_pt_match_cast <- positive_admit_pt_match_cast %>%
+  mutate(PercentNotMatched = VolNotMatched / (VolNotMatched + VolMatched) * 100,
+         PercentMatched = VolMatched / (VolNotMatched + VolMatched) * 100)
+
+# Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
+kable(positive_admit_pt_match_cast, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Site",
+                   "Volume Not Matched", "Volume Matched",
+                   "% Not Matched", "% Matched"),
+      caption = "Percentage of Flu Positive Admitted Patients Matched in IP Discharge Data") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(4:5), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  # column_spec(column = c(5:6), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:5), background = "inherit", color = "inherit") %>%
+  collapse_rows()
+
+
+
+```
+
+
+#### Admitted Flu Patients with Inpatient Billing Data
+*Crosswalk based on encounter number (not valid for MSBI)*
 ```{r Determine percent of admitted patients matched in IP discharge data}
 
 system_test_summary <- system_test %>%
@@ -385,67 +399,131 @@ admit_pt_match_cast <- admit_pt_match_cast %>%
   mutate(PercentNotMatched = VolNotMatched / (VolNotMatched + VolMatched) * 100,
          PercentMatched = VolMatched / (VolNotMatched + VolMatched) * 100)
 
-admit_pt_match_table <- admit_pt_match_cast %>%
-  select(Site, PtClass, PercentNotMatched, PercentMatched)
+# admit_pt_match_table <- admit_pt_match_cast %>%
+#   select(Site, PtClass, PercentNotMatched, PercentMatched)
+# 
+# # Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
+# kable(admit_pt_match_table, format = "html", escape = FALSE, align = "c", digits = 1,
+#       col.names =c("Site", "Patient Type", "% Not Matched", "% Matched"),
+#       caption = "Percentage of Assumed Admitted Patients Matched in IP Discharge Data") %>%
+#   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+#   column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
+#   column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+#   column_spec(column = c(2:4), background = "inherit", color = "inherit") %>%
+#   collapse_rows()
+
 
 # Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
-kable(admit_pt_match_table, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Site", "Patient Type", "% Not Matched", "% Matched"),
+kable(admit_pt_match_cast, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Site", "Patient Type (At Time of Test)", 
+                   "Volume Not Matched", "Volume Matched",
+                   "% Not Matched", "% Matched"),
       caption = "Percentage of Assumed Admitted Patients Matched in IP Discharge Data") %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:4), background = "inherit", color = "inherit") %>%
+  column_spec(column = c(2), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(3:4), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(5:6), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:6), background = "inherit", color = "inherit") %>%
+  collapse_rows()
+```
+
+#### Positive Flu Admitted Patients with Inpatient Billing Data
+*Crosswalk based on encounter number (not valid for MSBI)*
+```{r Determine percent of flu positive admitted patients matched in IP discharge data}
+# Include patient class to understand break down
+positive_admit_pt_match_summary2 <- system_test %>%
+  filter(TestResult == "Flu Positive" & AdmittedIP) %>%
+  group_by(Site, PtClass, Match) %>%
+  summarize(Count = n())
+
+positive_admit_pt_match_cast2 <- dcast(positive_admit_pt_match_summary2, Site + PtClass ~ Match, value.var = "Count")
+
+colnames(positive_admit_pt_match_cast2) <- c("Site", "PtClass", "VolNotMatched", "VolMatched")
+
+positive_admit_pt_match_cast2 <- positive_admit_pt_match_cast2 %>%
+  mutate(PercentNotMatched = VolNotMatched / (VolNotMatched + VolMatched) * 100,
+         PercentMatched = VolMatched / (VolNotMatched + VolMatched) * 100)
+
+# admit_pt_match_table <- admit_pt_match_cast %>%
+#   select(Site, PtClass, PercentNotMatched, PercentMatched)
+# 
+# # Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
+# kable(admit_pt_match_table, format = "html", escape = FALSE, align = "c", digits = 1,
+#       col.names =c("Site", "Patient Type", "% Not Matched", "% Matched"),
+#       caption = "Percentage of Assumed Admitted Patients Matched in IP Discharge Data") %>%
+#   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+#   column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
+#   column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+#   column_spec(column = c(2:4), background = "inherit", color = "inherit") %>%
+#   collapse_rows()
+
+
+# Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
+kable(positive_admit_pt_match_cast2, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Site", "Patient Type (At Time of Test)", 
+                   "Volume Not Matched", "Volume Matched",
+                   "% Not Matched", "% Matched"),
+      caption = "Percentage of Flu Positive Admitted Patients Matched in IP Discharge Data") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(3:4), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(5:6), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:6), background = "inherit", color = "inherit") %>%
   collapse_rows()
 
 ```
 
+
+
+
 ```{r Test code to search by MRN and compare test date to admit and discharge dates}
-
-# Create a dataframe with matched encounters
-matched_df <- system_test %>%
-  filter(!is.na(`Encounter No`))
-
-# Create a dataframe with un-matched encounters
-test_df <- system_test %>%
-  filter(is.na(`Encounter No`))
-
-test_df_copy <- system_test %>%
-  filter(is.na(`Encounter No`))
-
-for(k in 1:nrow(test_df)) {
-  mrn_df <- NULL
-  # print(k)
-  if(test_df$MRN[k] %in% ip_disch_subset$Msmrn) {
-    # Determine if test date is within 1 day of admit date and before discharge
-    mrn_df <- ip_disch_subset %>%
-      filter(Msmrn == test_df$MRN[k]) %>%
-      arrange(`Admit Dt Src`) %>%
-      mutate(TestWithinStay = (test_df$OrderDate[k] >= (`Admit Dt Src` - 1) 
-                               & test_df$OrderDate[k] <= `Dsch Dt Src`), )
-    # print(paste0("MRN Matches: ", nrow(mrn_df)))
-    
-    matches <- mrn_df[mrn_df$TestWithinStay, ]
-    
-    # print(paste0("Test within stay: ", nrow(matches)))
-    if(nrow(matches) != 0) {
-      test_df[k, c("Encounter No", "Msmrn", "Facility Msx", 
-                   "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
-                   "Icu Days Msx", "Los No Src")] <- 
-        matches[1, c("Encounter No", "Msmrn", "Facility Msx", 
-                     "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
-                     "Icu Days Msx", "Los No Src")]
-        
-    }
-
-    } else {
-    test_df[k, ] <- test_df[k, ]
-  }
-}
-
-test_df_summary <- test_df %>%
-  group_by(Site, PtClass, AdmittedIP) %>%
-  summarize(StillNotMatched = sum(is.na(`Encounter No`)),
-            NowMatched = sum(!is.na(`Encounter No`)))
+# 
+# # Create a dataframe with matched encounters
+# matched_df <- system_test %>%
+#   filter(!is.na(`Encounter No`))
+# 
+# # Create a dataframe with un-matched encounters
+# test_df <- system_test %>%
+#   filter(is.na(`Encounter No`))
+# 
+# test_df_copy <- system_test %>%
+#   filter(is.na(`Encounter No`))
+# 
+# for(k in 1:nrow(test_df)) {
+#   mrn_df <- NULL
+#   # print(k)
+#   if(test_df$MRN[k] %in% ip_disch_subset$Msmrn) {
+#     # Determine if test date is within 1 day of admit date and before discharge
+#     mrn_df <- ip_disch_subset %>%
+#       filter(Msmrn == test_df$MRN[k]) %>%
+#       arrange(`Admit Dt Src`) %>%
+#       mutate(TestWithinStay = (test_df$OrderDate[k] >= (`Admit Dt Src` - 1) 
+#                                & test_df$OrderDate[k] <= `Dsch Dt Src`), )
+#     # print(paste0("MRN Matches: ", nrow(mrn_df)))
+#     
+#     matches <- mrn_df[mrn_df$TestWithinStay, ]
+#     
+#     # print(paste0("Test within stay: ", nrow(matches)))
+#     if(nrow(matches) != 0) {
+#       test_df[k, c("Encounter No", "Msmrn", "Facility Msx", 
+#                    "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
+#                    "Icu Days Msx", "Los No Src")] <- 
+#         matches[1, c("Encounter No", "Msmrn", "Facility Msx", 
+#                      "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
+#                      "Icu Days Msx", "Los No Src")]
+#         
+#     }
+# 
+#     } else {
+#     test_df[k, ] <- test_df[k, ]
+#   }
+# }
+# 
+# test_df_summary <- test_df %>%
+#   group_by(Site, PtClass, TestResult, AdmittedIP) %>%
+#   summarize(StillNotMatched = sum(is.na(`Encounter No`)),
+#             NowMatched = sum(!is.na(`Encounter No`)))
 
 ```
