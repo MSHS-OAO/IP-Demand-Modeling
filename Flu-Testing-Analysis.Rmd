@@ -79,6 +79,29 @@ ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disc
                                             "text", "text", "text", "text", "text", "text", "text",
                                             "numeric", "numeric"))
 
+# Import ED billing data
+ed_enc_file <- paste0(user_directory, "/ED Encounter Data/All Sites ED - Admitted to IP.xlsx")
+ed_enc_site_sheets <- excel_sheets(ed_enc_file)
+
+bislw_ed_enc_list <- lapply(ed_enc_site_sheets[1:4], function(x) read_excel(ed_enc_file, 
+                                                                 sheet = x))
+
+msb_ed_enc_raw <- bislw_ed_enc_list[[1]]
+msbi_ed_enc_raw <- bislw_ed_enc_list[[2]]
+msm_ed_enc_raw <- bislw_ed_enc_list[[3]]
+msw_ed_enc_raw <- bislw_ed_enc_list[[4]]
+
+msh_ed_enc_raw <- read_excel(ed_enc_file, 
+                             sheet = "MSH", 
+                             col_types = c("text", "date", "text", "text", "text", "text"))
+
+msq_ed_enc_raw <- read_excel(ed_enc_file, 
+                             sheet = "MSQ",
+                             col_types = c("text", "text", "date", "text", "text", "numeric"))
+
+# msh_ed_enc_raw <- ed_enc_list[[5]]
+# msq_ed_enc_raw <- ed_enc_list[[6]]
+
 # 
 # Import analysis reference
 reference_file <- paste0(user_directory, "/Flu Test Data/Analysis Reference 2020-07-08.xlsx")
@@ -571,6 +594,35 @@ kable(positive_admit_pt_match_cast2, format = "html", escape = FALSE, align = "c
   collapse_rows()
 
 ```
+
+```{r Format and preprocess ED billing data}
+
+# Subset flu data for BISLW
+bislw_flu_tests <- system_test %>%
+  filter(Site == "MSB" |
+           Site == "MSBI" |
+           Site == "MSM" |
+           Site == "MSW")
+
+bislw_ed_enc <- rbind(msb_ed_enc_raw, msbi_ed_enc_raw, msm_ed_enc_raw, msw_ed_enc_raw)
+
+bislw_ed_enc <- bislw_ed_enc %>%
+  mutate(VisitNumber = substr(`Encounter Number`, 1, nchar(`Encounter Number`) - 1))
+
+bislw_crosswalk_test <- left_join(bislw_flu_tests, bislw_ed_enc,
+                                  by = c("VisitNumber" = "VisitNumber"))
+
+bislw_crosswalk_summary <- bislw_crosswalk_test %>%
+  group_by(Site, PtClass, Hospital) %>%
+  summarize(Count = n())
+
+bislw_crosswalk_ed_dispo_summary <- bislw_crosswalk_test %>%
+  group_by(Site, PtClass, AdmittedIP, EDDispo, Hospital, `Discharge Disposition`) %>%
+  summarize(Count = n())
+  
+
+```
+
 
 
 
