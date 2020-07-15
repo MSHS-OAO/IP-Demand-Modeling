@@ -1,0 +1,378 @@
+---
+title: "Compare Dec19 Flu Lab Volume"
+date: "07/15/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r Install and load packages}
+# Code for analyzing historical COVID-19 IP census, admissions, and discharges ----------------------
+
+#Install and load necessary packages --------------------
+#install.packages("readraw_dfl")
+#install.packages("writeraw_dfl")
+#install.packages("ggplot2")
+#install.packages("lubridate")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("svDialogs")
+#install.packages("stringr")
+#install.packages("formattable")
+# install.packages("ggpubr")
+# install.packages("rprojroot")
+
+# Load libraries ------------------------
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
+library(reshape2)
+library(knitr)
+library(rmarkdown)
+library(kableExtra)
+
+```
+
+```{r Determine drive mapping}
+rm(list = ls())
+
+if (list.files("J://") == "Presidents") {
+  user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+} else {
+  user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+}
+
+```
+
+
+```{r Import raw data}
+# Set working directory and select raw data ----------------------------
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
+
+site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
+
+flu_season_order <- c("Non-Flu", "Flu")
+
+# Import FY2019 flu test data for Epic sites
+epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites FY2019 Flu Test Data 2020-07-09.xlsx"))
+
+# Import FY2019 flu test data for MSBI
+msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI FY2019 Flu Test Data 2020-07-09.xlsx"))
+
+# Import SCC data for labs resulted in Dec 2019
+setwd(user_directory)
+setwd("../../Service Lines/Lab KPI/Data/")
+
+lab_kpi_path <- getwd()
+
+file_list_scc <- list.files(path = paste0(lab_kpi_path, "\\SCC CP Reports"), 
+                            pattern = "^(Doc){1}.+(2019-12-){1}[0-9]{2}.xlsx")
+
+file_list_sun <- list.files(path = paste0(lab_kpi_path, "\\SUN CP Reports"),
+                            pattern = "^(KPI_Daily_TAT_Report ){1}(2019-12-){1}[0-9]{2}.xls")
+
+scc_list <- lapply(file_list_scc, function(x) read_excel(path = paste0(lab_kpi_path, "\\SCC CP Reports\\", x)))
+
+sun_list <- lapply(file_list_sun, function(x) (read_excel(path = paste0(lab_kpi_path, "\\SUN CP Reports\\", x), 
+                                                          col_types = c("text", "text", "text", "text", "text", "text", "text", "text", "text", 
+                                                                        "numeric", "numeric", "numeric", "numeric", "numeric", 
+                                                                        "text", "text", "text", "text", "text",
+                                                                        "text", "text", "text", "text", "text",
+                                                                        "text", "text", "text", "text", "text",
+                                                                        "text", "text", "text", "text", "text", "text"))))
+
+# 
+# Import analysis reference
+reference_file <- paste0(user_directory, "/Flu Test Data/Analysis Reference 2020-07-08.xlsx")
+ref_sheets <- excel_sheets(reference_file)
+
+ref_data <- lapply(ref_sheets, function(x) read_excel(reference_file, sheet = x))
+
+site_ref <- ref_data[[1]]
+dispo_ref <- ref_data[[2]]
+
+```
+
+```{r Preprocess data for Epic sites}
+epic_sites_flu_df <- epic_sites_flu_raw
+
+# Filter out non-ED or non-IP flu tests
+epic_sites_flu_df <- epic_sites_flu_df %>%
+  filter(`Patient Class` == "Emergency" | `Patient Class` == "Inpatient" & !is.na(`Patient Class`))
+
+# Crosswalk sites
+epic_sites_flu_df <- left_join(epic_sites_flu_df, site_ref, by = c("Location" = "Location"))
+
+
+# Determine order and result months
+epic_sites_flu_df <- epic_sites_flu_df %>%
+  mutate(OrderYear = year(`Order Date`),
+         OrderMonth = month(`Order Date`), 
+         ResultYear = year(`LAST RESULT DATE`),
+         ResultMonth = month(`LAST RESULT DATE`),
+         TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
+         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & `ED Disch Disposition` == "Admit"))
+
+# Subset dataframe
+epic_sites_flu_subset <- epic_sites_flu_df %>%
+  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+         `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
+         `LAST RESULT DATE`, ResultYear, ResultMonth, 
+         TestResult, `ED Disch Disposition`, AdmittedIP)
+
+colnames(epic_sites_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+                                     "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
+                                     "ResultDate", "ResultYear", "ResultMonth", 
+                                     "TestResult", "EDDispo", "AdmittedIP")
+
+```
+
+```{r Preprocess MSBI data}
+msbi_flu_df <- msbi_flu_raw
+
+# Create column for site name
+msbi_flu_df$Site <- "MSBI"
+
+# Determine order and result months
+msbi_flu_df <- msbi_flu_df %>%
+  mutate(OrderYear = year(`Order Date`),
+         OrderMonth = month(`Order Date`), 
+         ResultYear = year(`LAST RESULT DATE`),
+         ResultMonth = month(`LAST RESULT DATE`),
+         TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
+         AdmittedIP = NA) #  Will need to crosswalk MSBI data with IP discharge data to determine if patient has been admitted.
+
+# Subset dataframe
+msbi_flu_subset <- msbi_flu_df %>%
+  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+         `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
+         `LAST RESULT DATE`, ResultYear, ResultMonth, 
+         TestResult, `ED Disch Disposition`, AdmittedIP)
+
+colnames(msbi_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+                                     "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
+                                     "ResultDate", "ResultYear", "ResultMonth", 
+                                     "TestResult", "EDDispo", "AdmittedIP")
+
+```
+
+```{r Combine data for Epic sites and MSBI}
+system_flu_subset <- rbind(epic_sites_flu_subset, msbi_flu_subset)
+
+```
+
+```{r Create dataframe with total days in each month}
+fy2019_dates <- seq(from = as.Date("1/1/19", format = "%m/%d/%y"), to = as.Date("12/31/19", format = "%m/%d/%y"),
+                    by = 1)
+
+days_per_month <- data.frame("Date" = fy2019_dates)
+
+days_per_month <- days_per_month %>%
+  mutate(Month = month(Date),
+         Year = year(Date),
+         MonthYear = as.Date(paste0(Month, "/1/", Year), format = "%m/%d/%Y"))
+
+days_per_month <- days_per_month %>%
+  group_by(Year, Month, MonthYear) %>%
+  summarize(DaysPerMonth = n()) %>%
+  mutate(EndDate = MonthYear + DaysPerMonth - 1) %>%
+  ungroup()
+
+days_per_month_site <- days_per_month[rep(row.names(days_per_month), length(unique(system_flu_subset$Site))), ]
+
+site_list <- data.frame("Site" = unique(system_flu_subset$Site), stringsAsFactors = FALSE)
+site_list <- data.frame("Site" = site_list[rep(row.names(site_list), nrow(days_per_month)), ], 
+                        stringsAsFactors = FALSE)
+site_list <- site_list %>%
+  arrange(Site)
+
+site_start_dates <- system_flu_subset %>%
+  group_by(Site, OrderYear) %>%
+  summarize(DataStartDate = as.Date(min(OrderDate), format = "%Y-%m-%d"),
+            DataStartMonth = OrderMonth[which.min(OrderDate)])
+
+days_per_month_site <- cbind(days_per_month_site, site_list)
+
+days_per_month_site <- left_join(days_per_month_site, site_start_dates, 
+                                 by = c("Site" = "Site", 
+                                        "Year" = "OrderYear"))
+
+days_per_month_site <- days_per_month_site %>%
+  mutate(DaysPerMonth = ifelse(DataStartDate == as.Date("2019-01-01", format = "%Y-%m-%d"), 
+                                DaysPerMonth,
+                                ifelse(DataStartMonth > Month, 0,
+                                       ifelse(DataStartMonth == Month, EndDate - DataStartDate + 1, 
+                                              DaysPerMonth))))
+
+days_per_month_site <- days_per_month_site %>%
+  select(Site, Year, Month, MonthYear, DaysPerMonth)
+
+```
+
+### Flu Test Volume
+#### FY2019 Flu Test Volume (ED and IP Only)
+```{r Format flu data for graphing volume trends}
+
+# Determine number of days in each month
+system_daily_volume <- system_flu_subset %>%
+  group_by(OrderYear, OrderMonth, OrderDate) %>%
+  summarize(Count = n())
+
+system_flu_subset$Site <- factor(system_flu_subset$Site, levels = site_order, ordered = TRUE)
+
+system_flu_subset <- system_flu_subset %>%
+  mutate(OrderMonthYear = as.Date(paste0(OrderMonth, "/1/", OrderYear), format = "%m/%d/%Y")) %>%
+  arrange(Site)
+
+system_flu_subset <- left_join(system_flu_subset, days_per_month_site[ , c("Site", "MonthYear", "DaysPerMonth")], 
+                               by = c("Site" = "Site",
+                               "OrderMonthYear" = "MonthYear"))
+
+# Summarize data for graphing
+site_daily_flu_volume <- system_flu_subset %>%
+  group_by(Site, OrderDate) %>%
+  summarize(VolumeOrdered = n())
+
+site_monthly_flu_volume <- system_flu_subset %>%
+  group_by(Site, OrderMonthYear, DaysPerMonth) %>%
+  summarize(VolumeOrdered = n()) %>%
+  mutate(DailyAverage = VolumeOrdered / DaysPerMonth) 
+
+site_monthly_flu_volume_melt <- melt(site_monthly_flu_volume, 
+                                     id.vars = c("Site", "OrderMonthYear"),
+                                     measure.vars = c("VolumeOrdered", "DailyAverage"))
+
+flu_facet_labels <- c(VolumeOrdered = "Total Ordered", DailyAverage = "Daily Average Ordered")
+
+ggplot(data = site_monthly_flu_volume_melt, aes(x = OrderMonthYear, y = value, na.rm = TRUE)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = flu_facet_labels)) +
+  labs(title = "FY2019 Flu Test Volume by Site (ED and IP)", x = "Order Month", y = "Flu Test Volume") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
+  
+
+```
+
+```{r Subset Epic data labs resulted in Dec2019}
+epic_result_dec19 <- system_flu_subset %>%
+  filter(ResultYear == 2019 & ResultMonth == 12 & OrderDesc == "INFLUENZA A/B/RSV BY PCR")
+
+epic_result_dec19_summary <- epic_result_dec19 %>%
+  group_by(Site, ResultDate, OrderDesc, PtClass) %>%
+  summarize(Volume = n()) %>%
+  ungroup()
+
+epic_result_dec19_summary$ResultDate <- date(epic_result_dec19_summary$ResultDate)
+
+```
+
+```{r Combine daily SCC and Sunquest files}
+# Combine SCC reports
+scc_master <- NULL
+
+for(i in 1:length(scc_list)){
+  scc_new <- scc_list[[i]]
+  scc_master <- rbind(scc_master, scc_new)
+}
+
+sun_master <- NULL
+
+for(i in 1:length(sun_list)){
+  sun_new <- sun_list[[i]]
+  sun_master <- rbind(sun_master, sun_new)
+}
+
+
+```
+
+```{r Format SCC data}
+scc_flu <- scc_master %>%
+  filter(TEST_NAME == "INFLUENZA A PCR") %>%
+  mutate(ResultDateTime = as.POSIXct(VERIFIED_DATE, format = "%Y-%m-%d %H:%M:%OS"),
+         ResultDate = date(ResultDateTime),
+         ResultYear = year(ResultDateTime),
+         ResultMonth = month(ResultDateTime),
+         Site = ifelse(SITE == "Sinai", "MSH", 
+                       ifelse(SITE == "Queens", "MSQ", "Other")))
+
+scc_flu_summary <- scc_flu %>%
+  filter(ResultYear == 2019 & ResultMonth == 12) %>%
+  group_by(Site, ResultDate, TEST_NAME, CLINIC_TYPE) %>%
+  summarize(Count = n()) %>%
+  ungroup()
+
+colnames(scc_flu_summary) <- c("Site", "ResultDate", "Test", "Setting", "Count")
+
+```
+
+```{r Format Sunquest data}
+sun_flu <- sun_master %>%
+  filter(TSTName == "Influenza A") %>%
+  mutate(ResultDateTimeNew = as.POSIXct(ResultDateTime, format = "%m/%d/%Y %H:%M:%S"),
+         ResultDate = date(ResultDateTimeNew),
+         ResultYear = year(ResultDateTimeNew),
+         ResultMonth = month(ResultDateTimeNew),
+         Site = ifelse(HospCode == "STL", "MSM",
+                       ifelse(HospCode == "BIMC", "MSBI",
+                              ifelse(HospCode == "BIKH", "MSB",
+                                     ifelse(HospCode == "RVT", "MSW", "Other")))))
+
+sun_flu_summary <- sun_flu %>%
+  filter(ResultYear == 2019 & ResultMonth == 12) %>%
+  group_by(Site, ResultDate, TSTName, LocType) %>%
+  summarize(Count = n()) %>%
+  ungroup()
+
+colnames(sun_flu_summary) <- c("Site", "ResultDate", "Test", "Setting", "Count")
+
+```
+
+```{r Combine SCC and Sunquest data}
+
+scc_sun_flu_summary <- rbind(scc_flu_summary, sun_flu_summary)
+
+scc_sun_flu_ed_ip <- scc_sun_flu_summary %>%
+  filter(Setting == "E" | Setting == "I" | Setting == "ER" | Setting == "Inpatient") %>%
+  mutate(SettingNew = ifelse(Setting == "E" | Setting == "ER", "Emergency", "Inpatient"))
+
+```
+
+```{r Crosswalk Epic data with LIS data}
+
+scc_sun_epic_crosswalk <- full_join(scc_sun_flu_ed_ip, epic_result_dec19_summary,
+                                    by = c("Site" = "Site",
+                                           "ResultDate" = "ResultDate",
+                                           "SettingNew" = "PtClass"))
+
+# Summarize by date
+scc_sun_epic_crosswalk_daily_sum <- scc_sun_epic_crosswalk %>%
+  group_by(Site, ResultDate) %>%
+  summarize(LISTotal = sum(Count),
+            EpicTotal = sum(Volume),
+            Test = LISTotal == EpicTotal)
+```
