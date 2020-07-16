@@ -68,39 +68,16 @@ site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
 flu_season_order <- c("Non-Flu", "Flu")
 
 # Import FY2019 flu test data for Epic sites
-epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites FY2019 Flu Test Data 2020-07-09.xlsx"))
+epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites Lab Ordering Dept FY2019 2020-07-16.xlsx"))
 
 # Import FY2019 flu test data for MSBI
-msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI FY2019 Flu Test Data 2020-07-09.xlsx"))
+msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI Lab Ordering Dept FY2019 2020-07-16.xlsx"))
 
 # Import FY2019 IP discharge data
 ip_disch_df_raw <- read_excel(paste0(user_directory, "/IP Discharge Data/IP Disch FY2019 2020-05-13.xlsx"), na = c("", "NA"),
                               col_types = c("text", "text", "text", "text", "date", "date", "date",
                                             "text", "text", "text", "text", "text", "text", "text",
                                             "numeric", "numeric"))
-
-# Import ED billing data
-ed_enc_file <- paste0(user_directory, "/ED Encounter Data/All Sites ED - Admitted to IP.xlsx")
-ed_enc_site_sheets <- excel_sheets(ed_enc_file)
-
-bislw_ed_enc_list <- lapply(ed_enc_site_sheets[1:4], function(x) read_excel(ed_enc_file, 
-                                                                 sheet = x))
-
-msb_ed_enc_raw <- bislw_ed_enc_list[[1]]
-msbi_ed_enc_raw <- bislw_ed_enc_list[[2]]
-msm_ed_enc_raw <- bislw_ed_enc_list[[3]]
-msw_ed_enc_raw <- bislw_ed_enc_list[[4]]
-
-msh_ed_enc_raw <- read_excel(ed_enc_file, 
-                             sheet = "MSH", 
-                             col_types = c("text", "date", "text", "text", "text", "text"))
-
-msq_ed_enc_raw <- read_excel(ed_enc_file, 
-                             sheet = "MSQ",
-                             col_types = c("text", "text", "date", "text", "text", "numeric"))
-
-# msh_ed_enc_raw <- ed_enc_list[[5]]
-# msq_ed_enc_raw <- ed_enc_list[[6]]
 
 # 
 # Import analysis reference
@@ -132,19 +109,20 @@ epic_sites_flu_df <- epic_sites_flu_df %>%
          ResultYear = year(`LAST RESULT DATE`),
          ResultMonth = month(`LAST RESULT DATE`),
          TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
-         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & `ED Disch Disposition` == "Admit"))
+         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & `ED Disch Disposition` == "Admit"),
+         EDOrder = str_detect(`Ordering Department`, regex("EMERGENCY", ignore_case = TRUE)))
 
 # Subset dataframe
 epic_sites_flu_subset <- epic_sites_flu_df %>%
-  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+  select(Site, Department, `Ordering Department`, MRN, `Visit Number`, `Patient Class`,
          `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
          `LAST RESULT DATE`, ResultYear, ResultMonth, 
-         TestResult, `ED Disch Disposition`, AdmittedIP)
+         TestResult, `ED Disch Disposition`, AdmittedIP, EDOrder)
 
-colnames(epic_sites_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+colnames(epic_sites_flu_subset) <- c("Site", "Department", "OrderingDept", "MRN", "VisitNumber", "PtClass",
                                      "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
                                      "ResultDate", "ResultYear", "ResultMonth", 
-                                     "TestResult", "EDDispo", "AdmittedIP")
+                                     "TestResult", "EDDispo", "AdmittedIP", "EDOrder")
 
 ```
 
@@ -161,19 +139,20 @@ msbi_flu_df <- msbi_flu_df %>%
          ResultYear = year(`LAST RESULT DATE`),
          ResultMonth = month(`LAST RESULT DATE`),
          TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
-         AdmittedIP = NA) #  Will need to crosswalk MSBI data with IP discharge data to determine if patient has been admitted.
+         AdmittedIP = NA,
+         EDOrder = str_detect(`Ordering Department`, regex("EMERGENCY", ignore_case = TRUE))) 
 
 # Subset dataframe
 msbi_flu_subset <- msbi_flu_df %>%
-  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+  select(Site, Department, `Ordering Department`, MRN, `Visit Number`, `Patient Class`,
          `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
          `LAST RESULT DATE`, ResultYear, ResultMonth, 
-         TestResult, `ED Disch Disposition`, AdmittedIP)
+         TestResult, `ED Disch Disposition`, AdmittedIP, EDOrder)
 
-colnames(msbi_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+colnames(msbi_flu_subset) <- c("Site", "Department", "OrderingDept", "MRN", "VisitNumber", "PtClass",
                                      "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
                                      "ResultDate", "ResultYear", "ResultMonth", 
-                                     "TestResult", "EDDispo", "AdmittedIP")
+                                     "TestResult", "EDDispo", "AdmittedIP", "EDOrder")
 
 ```
 
@@ -327,118 +306,8 @@ ggplot(data = site_monthly_test_results_melt, aes(x = OrderMonthYear, y = value,
 
 ```
 
-### Positive Flu Admissions
-Patients assumed to be admitted if patient class is Inpatient or if patient class is Emergency and ED disposition is Admit.
-```{r Track positive tests that were admitted}
-flu_admitted_positives <- system_flu_subset %>%
-  filter(TestResult == "Flu Positive" & AdmittedIP)
 
-site_admitted_positives <- flu_admitted_positives %>%
-  group_by(Site, OrderDate, OrderMonthYear, PtClass) %>%
-  summarize(Admits = n())
-  
-site_admitted_positives_monthly <- site_admitted_positives %>%
-  group_by(Site, OrderMonthYear) %>%
-  summarize(Admits = sum(Admits))
-
-site_admitted_positives_monthly <- left_join(site_admitted_positives_monthly, 
-                                             days_per_month[ , c("MonthYear", "DaysPerMonth")],
-                                             by = c("OrderMonthYear" = "MonthYear"))
-
-site_admitted_positives_monthly <- site_admitted_positives_monthly %>%
-  mutate(AverageAdmissions = Admits / DaysPerMonth)
-
-positive_admits_melt <- melt(site_admitted_positives_monthly, 
-                                     id.vars = c("Site", "OrderMonthYear"),
-                                     measure.vars = c("Admits", "AverageAdmissions"))
-
-positive_admits_facet <- c(Admits = "Total Patients", AverageAdmissions = "Daily Average")
-
-ggplot(data = positive_admits_melt, aes(x = OrderMonthYear, y = value)) +
-  geom_line(aes(color = Site)) +
-  geom_point(aes(shape = Site, color = Site)) +
-  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = positive_admits_facet)) +
-  labs(title = "FY2019 Positive Flu Tests with Admission (ED and IP)", x = "Order Month", y = "Positive Flu Tests") +
-  theme_bw() +
-  theme(plot.title = element_text(size = 14, hjust = 0.5),
-        legend.position = "right",
-        legend.box = "horizontal",
-        legend.title = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        axis.text.x = element_text(size = 10),
-        axis.text.y = element_text(size = 10),
-        panel.grid.major = element_line(color = "lightgrey"),
-        panel.grid.minor = element_line(color = "lightgrey")) +
-  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
-  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
-
-
-# Look at positive flu patients admitted by patient class
-site_admitted_ptclass_monthly <- site_admitted_positives %>%
-  group_by(Site, OrderMonthYear, PtClass) %>%
-  summarize(Admits = sum(Admits))
-
-site_admitted_ptclass_monthly_cast <- dcast(site_admitted_ptclass_monthly,
-                                            Site + OrderMonthYear ~ PtClass, 
-                                            value.var = "Admits")
-
-site_admitted_ptclass_monthly_cast <- site_admitted_ptclass_monthly_cast %>%
-  mutate(Emergency = ifelse(is.na(Emergency), 0, Emergency),
-         Inpatient = ifelse(is.na(Inpatient), 0, Inpatient),
-         Total = Emergency + Inpatient,
-         PercentED = Emergency / Total * 100,
-         PercentIP = Inpatient / Total  * 100)
-
-
-ed_admitted_positive_monthly <- site_admitted_ptclass_monthly_cast %>%
-  select(Site, OrderMonthYear, Emergency, Inpatient)
-
-ed_admitted_positive_monthly_melt <- melt(ed_admitted_positive_monthly,
-                                          id.vars = c("Site", "OrderMonthYear"),
-                                          measure.vars = c("Emergency", "Inpatient"))
-
-ed_admit_facets <- c(Emergency = "ED Patients w/ Admit Dispo", Inpatient = "Inpatient at Time of Test")
-
-ggplot(data = ed_admitted_positive_monthly_melt, aes(x = OrderMonthYear, y = value)) +
-  geom_line(aes(color = Site)) +
-  geom_point(aes(shape = Site, color = Site)) +
-  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = ed_admit_facets)) +
-  labs(title = "FY2019 Admitted Flu Positive Patients", x = "Order Month", y = "Number of Patients") +
-  theme_bw() +
-  theme(plot.title = element_text(size = 14, hjust = 0.5),
-        legend.position = "right",
-        legend.box = "horizontal",
-        legend.title = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        axis.text.x = element_text(size = 10),
-        axis.text.y = element_text(size = 10),
-        panel.grid.major = element_line(color = "lightgrey"),
-        panel.grid.minor = element_line(color = "lightgrey")) +
-  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
-  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
-
-# ggplot(data = site_admitted_positives_ptclass_monthly, aes(x = OrderMonthYear, y = Admits)) +
-#   geom_bar(aes(color = PtClass, fill = PtClass), position = "stack", stat = "identity") +
-#   facet_grid(Site ~ ., scales = "free") +
-#   labs(title = "FY2019 Positive Flu Tests with Admission by Patient Type", x = "Order Month", y = "Admitted Patients") +
-#   theme_bw() +
-#   theme(plot.title = element_text(size = 14, hjust = 0.5),
-#         legend.position = "bottom",
-#         legend.box = "horizontal",
-#         legend.title = element_text(size = 10),
-#         legend.text = element_text(size = 10),
-#         axis.text.x = element_text(size = 10),
-#         axis.text.y = element_text(size = 10),
-#         panel.grid.major = element_line(color = "lightgrey"),
-#         panel.grid.minor = element_line(color = "lightgrey")) +
-#   scale_color_manual(name = "Patient Class", values = sinai_colors[1:2]) +
-#   scale_fill_manual(name = "Patient Class", values = sinai_colors[1:2]) + 
-#   scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
-
-```
-
-
-```{r Preprocess IP discharge data}
+```{r Preprocess IP discharge data to crosswalk with Epic data}
 
 # Select relevant columsn and remove "I" at end of encounters for matching with Epic flu data
 ip_disch_subset <- ip_disch_df_raw %>%
@@ -457,222 +326,90 @@ system_flu_crosswalk <- system_flu_crosswalk %>%
                               VisitNumber))
 
 # Crosswalk Epic flu data with IP discharge data based on visit number
-system_test <- left_join(system_flu_crosswalk, ip_disch_subset, by = c("VisitNumber" = "VisitNumber"))
+epic_ip_disch_crosswalk <- left_join(system_flu_crosswalk, ip_disch_subset, by = c("VisitNumber" = "VisitNumber"))
 
-system_test$Match <- ifelse(is.na(system_test$`Encounter No`), FALSE, TRUE)
+epic_ip_disch_crosswalk$IPAdmission <- !is.na(epic_ip_disch_crosswalk$`Encounter No`)
 
 ```
 
-### Crosswalk Flu and IP Billing
-*Crosswalk based on encounter number (not valid for MSBI)*
-```{r Summarize positive flu patients admitted and matched}
-positive_admit_pt_match_summary <- system_test %>%
-  filter(TestResult == "Flu Positive" & AdmittedIP) %>%
-  group_by(Site, Match) %>%
-  summarize(Count = n())
+```{r Determine patients admitted inpatient with positive flu tests}
+# Subset crosswalked data to only include patients admitted IP (patients with an inpatient billing charge)
+ip_admissions <- epic_ip_disch_crosswalk %>%
+  filter(IPAdmission)
 
-positive_admit_pt_match_cast <- dcast(positive_admit_pt_match_summary, Site ~ Match, value.var = "Count")
+flu_positive_ip_admissions <- epic_ip_disch_crosswalk %>%
+  filter(IPAdmission & TestResult == "Flu Positive")
 
-colnames(positive_admit_pt_match_cast) <- c("Site", "VolNotMatched", "VolMatched")
+flu_positive_admits_monthly <- flu_positive_ip_admissions %>%
+  group_by(Site, OrderMonthYear, DaysPerMonth) %>%
+  summarize(TotalPatients = n()) %>%
+  mutate(DailyAverage = TotalPatients / DaysPerMonth) 
 
-positive_admit_pt_match_cast <- positive_admit_pt_match_cast %>%
-  mutate(PercentNotMatched = VolNotMatched / (VolNotMatched + VolMatched) * 100,
-         PercentMatched = VolMatched / (VolNotMatched + VolMatched) * 100)
+flu_positive_admits_melt <- melt(flu_positive_admits_monthly, id.vars = c("Site", "OrderMonthYear"),
+                                       measure.vars = c("TotalPatients", "DailyAverage"))
 
-# Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
-kable(positive_admit_pt_match_cast, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Site",
-                   "Volume Not Matched", "Volume Matched",
-                   "% Not Matched", "% Matched"),
-      caption = "Percentage of Flu Positive Admitted Patients Matched in IP Discharge Data") %>%
+flu_positive_admits_facet <- c(TotalPatients = "Total Patients", DailyAverage = "Daily Average")
+
+ggplot(data = flu_positive_admits_melt, aes(x = OrderMonthYear, y = value, na.rm = TRUE)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = flu_positive_admits_facet)) +
+  labs(title = "FY2019 Admitted Patients with Positive Flu Tests", 
+       x = "Order Month", y = "Volume of Patients") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
+
+```
+**Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge associated with it. Flu test may have been ordered by ED or IP unit.**
+
+
+```{r Summarize patient days for admitted flu patients}
+
+flu_positive_ip_admissions <- flu_positive_ip_admissions %>%
+  mutate(ICUDays = `Icu Days Msx`,
+         NonICUDays = `Los No Src` - ICUDays)
+
+days_per_month_flu_season <- days_per_month %>%
+  mutate(FluMonth = Month <= 3 | Month >= 11)
+
+flu_season_days <- days_per_month_flu_season %>%
+  group_by(Year) %>%
+  summarize(FluSeasonDays = sum(DaysPerMonth[FluMonth]))
+
+flu_positive_ip_days_summary <- flu_positive_ip_admissions %>%
+  group_by(Site) %>%
+  summarize(TotalICUDays = sum(ICUDays),
+            TotalNonICUDays = sum(NonICUDays),
+            ICUADC = TotalICUDays / flu_season_days$FluSeasonDays,
+            NonICUADC = TotalNonICUDays / flu_season_days$FluSeasonDays) %>%
+
+flu_positive_ip_days_summary$Site <- factor(flu_positive_ip_days_summary$Site,
+                                            levels = site_order, ordered = TRUE)
+
+flu_positive_ip_days_summary <- flu_positive_ip_days_summary %>%
+  arrange(Site)
+
+# Create table summarizing flu positive patient days and ADC
+kable(flu_positive_ip_days_summary, format = "html", escape = FALSE, align = "c", 
+      col.names = c("Site", "ICU Days", "Non-ICU Days", "ICU ADC", "Non-ICU ADC"),
+      caption = "Census Impact of Admitted Flu Positive Patients",
+      digits = 1) %>%
   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1, 3), border_right = "thin solid lightgray") %>%
   column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
   column_spec(column = c(4:5), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  # column_spec(column = c(5:6), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:5), background = "inherit", color = "inherit") %>%
-  collapse_rows()
-
+  column_spec(column = c(2:5), background = "inherit", color = "inherit")
 
 
 ```
 
-
-#### Admitted Flu Patients with Inpatient Billing Data
-*Crosswalk based on encounter number (not valid for MSBI)*
-```{r Determine percent of admitted patients matched in IP discharge data}
-
-system_test_summary <- system_test %>%
-  group_by(Site, PtClass, AdmittedIP, Match) %>%
-  summarize(Count = n())
-
-admit_pt_match_summary <- system_test %>%
-  filter(AdmittedIP) %>%
-  group_by(Site, PtClass, Match) %>%
-  summarize(Count = n())
-
-admit_pt_match_cast <- dcast(admit_pt_match_summary, Site + PtClass ~ Match, value.var = "Count")
-
-colnames(admit_pt_match_cast) <- c("Site", "PtClass", "VolNotMatched", "VolMatched")
-
-admit_pt_match_cast <- admit_pt_match_cast %>%
-  mutate(PercentNotMatched = VolNotMatched / (VolNotMatched + VolMatched) * 100,
-         PercentMatched = VolMatched / (VolNotMatched + VolMatched) * 100)
-
-# admit_pt_match_table <- admit_pt_match_cast %>%
-#   select(Site, PtClass, PercentNotMatched, PercentMatched)
-# 
-# # Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
-# kable(admit_pt_match_table, format = "html", escape = FALSE, align = "c", digits = 1,
-#       col.names =c("Site", "Patient Type", "% Not Matched", "% Matched"),
-#       caption = "Percentage of Assumed Admitted Patients Matched in IP Discharge Data") %>%
-#   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-#   column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
-#   column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-#   column_spec(column = c(2:4), background = "inherit", color = "inherit") %>%
-#   collapse_rows()
-
-
-# Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
-kable(admit_pt_match_cast, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Site", "Patient Type (At Time of Test)", 
-                   "Volume Not Matched", "Volume Matched",
-                   "% Not Matched", "% Matched"),
-      caption = "Percentage of Assumed Admitted Patients Matched in IP Discharge Data") %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(3:4), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:6), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:6), background = "inherit", color = "inherit") %>%
-  collapse_rows()
-```
-
-#### Positive Flu Admitted Patients with Inpatient Billing Data
-*Crosswalk based on encounter number (not valid for MSBI)*
-```{r Determine percent of flu positive admitted patients matched in IP discharge data}
-# Include patient class to understand break down
-positive_admit_pt_match_summary2 <- system_test %>%
-  filter(TestResult == "Flu Positive" & AdmittedIP) %>%
-  group_by(Site, PtClass, Match) %>%
-  summarize(Count = n())
-
-positive_admit_pt_match_cast2 <- dcast(positive_admit_pt_match_summary2, Site + PtClass ~ Match, value.var = "Count")
-
-colnames(positive_admit_pt_match_cast2) <- c("Site", "PtClass", "VolNotMatched", "VolMatched")
-
-positive_admit_pt_match_cast2 <- positive_admit_pt_match_cast2 %>%
-  mutate(PercentNotMatched = VolNotMatched / (VolNotMatched + VolMatched) * 100,
-         PercentMatched = VolMatched / (VolNotMatched + VolMatched) * 100)
-
-# admit_pt_match_table <- admit_pt_match_cast %>%
-#   select(Site, PtClass, PercentNotMatched, PercentMatched)
-# 
-# # Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
-# kable(admit_pt_match_table, format = "html", escape = FALSE, align = "c", digits = 1,
-#       col.names =c("Site", "Patient Type", "% Not Matched", "% Matched"),
-#       caption = "Percentage of Assumed Admitted Patients Matched in IP Discharge Data") %>%
-#   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-#   column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
-#   column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-#   column_spec(column = c(2:4), background = "inherit", color = "inherit") %>%
-#   collapse_rows()
-
-
-# Create kable with percentage of patients believed to be admitted that are matched/not matched in IP discharge data
-kable(positive_admit_pt_match_cast2, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Site", "Patient Type (At Time of Test)", 
-                   "Volume Not Matched", "Volume Matched",
-                   "% Not Matched", "% Matched"),
-      caption = "Percentage of Flu Positive Admitted Patients Matched in IP Discharge Data") %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 2), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(3:4), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:6), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:6), background = "inherit", color = "inherit") %>%
-  collapse_rows()
-
-```
-
-```{r Format and preprocess ED billing data}
-
-# Subset flu data for BISLW
-bislw_flu_tests <- system_test %>%
-  filter(Site == "MSB" |
-           Site == "MSBI" |
-           Site == "MSM" |
-           Site == "MSW")
-
-bislw_ed_enc <- rbind(msb_ed_enc_raw, msbi_ed_enc_raw, msm_ed_enc_raw, msw_ed_enc_raw)
-
-bislw_ed_enc <- bislw_ed_enc %>%
-  mutate(VisitNumber = substr(`Encounter Number`, 1, nchar(`Encounter Number`) - 1))
-
-bislw_crosswalk_test <- left_join(bislw_flu_tests, bislw_ed_enc,
-                                  by = c("VisitNumber" = "VisitNumber"))
-
-bislw_crosswalk_summary <- bislw_crosswalk_test %>%
-  group_by(Site, PtClass, Hospital) %>%
-  summarize(Count = n())
-
-bislw_crosswalk_ed_dispo_summary <- bislw_crosswalk_test %>%
-  group_by(Site, PtClass, AdmittedIP, EDDispo, Hospital, `Discharge Disposition`) %>%
-  summarize(Count = n())
-  
-
-```
-
-
-
-
-
-```{r Test code to search by MRN and compare test date to admit and discharge dates}
-# 
-# # Create a dataframe with matched encounters
-# matched_df <- system_test %>%
-#   filter(!is.na(`Encounter No`))
-# 
-# # Create a dataframe with un-matched encounters
-# test_df <- system_test %>%
-#   filter(is.na(`Encounter No`))
-# 
-# test_df_copy <- system_test %>%
-#   filter(is.na(`Encounter No`))
-# 
-# for(k in 1:nrow(test_df)) {
-#   mrn_df <- NULL
-#   # print(k)
-#   if(test_df$MRN[k] %in% ip_disch_subset$Msmrn) {
-#     # Determine if test date is within 1 day of admit date and before discharge
-#     mrn_df <- ip_disch_subset %>%
-#       filter(Msmrn == test_df$MRN[k]) %>%
-#       arrange(`Admit Dt Src`) %>%
-#       mutate(TestWithinStay = (test_df$OrderDate[k] >= (`Admit Dt Src` - 1) 
-#                                & test_df$OrderDate[k] <= `Dsch Dt Src`), )
-#     # print(paste0("MRN Matches: ", nrow(mrn_df)))
-#     
-#     matches <- mrn_df[mrn_df$TestWithinStay, ]
-#     
-#     # print(paste0("Test within stay: ", nrow(matches)))
-#     if(nrow(matches) != 0) {
-#       test_df[k, c("Encounter No", "Msmrn", "Facility Msx", 
-#                    "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
-#                    "Icu Days Msx", "Los No Src")] <- 
-#         matches[1, c("Encounter No", "Msmrn", "Facility Msx", 
-#                      "Admit Type Desc Msx", "Admit Dt Src", "Dsch Dt Src",
-#                      "Icu Days Msx", "Los No Src")]
-#         
-#     }
-# 
-#     } else {
-#     test_df[k, ] <- test_df[k, ]
-#   }
-# }
-# 
-# test_df_summary <- test_df %>%
-#   group_by(Site, PtClass, TestResult, AdmittedIP) %>%
-#   summarize(StillNotMatched = sum(is.na(`Encounter No`)),
-#             NowMatched = sum(!is.na(`Encounter No`)))
-
-```
