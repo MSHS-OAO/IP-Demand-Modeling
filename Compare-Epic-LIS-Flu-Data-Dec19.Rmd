@@ -67,10 +67,10 @@ site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
 flu_season_order <- c("Non-Flu", "Flu")
 
 # Import FY2019 flu test data for Epic sites
-epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites FY2019 Flu Test Data 2020-07-09.xlsx"))
+epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites Lab Ordering Dept FY2019 2020-07-16.xlsx"))
 
 # Import FY2019 flu test data for MSBI
-msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI FY2019 Flu Test Data 2020-07-09.xlsx"))
+msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI Lab Ordering Dept FY2019 2020-07-16.xlsx"))
 
 # Import SCC data for labs resulted in Dec 2019
 setwd(user_directory)
@@ -128,12 +128,12 @@ epic_sites_flu_df <- epic_sites_flu_df %>%
 
 # Subset dataframe
 epic_sites_flu_subset <- epic_sites_flu_df %>%
-  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+  select(Site, Department, `Ordering Department`, MRN, `Visit Number`, `Patient Class`,
          `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
          `LAST RESULT DATE`, ResultYear, ResultMonth, 
          TestResult, `ED Disch Disposition`, AdmittedIP)
 
-colnames(epic_sites_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+colnames(epic_sites_flu_subset) <- c("Site", "Department", "OrderingDept", "MRN", "VisitNumber", "PtClass",
                                      "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
                                      "ResultDate", "ResultYear", "ResultMonth", 
                                      "TestResult", "EDDispo", "AdmittedIP")
@@ -157,12 +157,12 @@ msbi_flu_df <- msbi_flu_df %>%
 
 # Subset dataframe
 msbi_flu_subset <- msbi_flu_df %>%
-  select(Site, Department, MRN, `Visit Number`, `Patient Class`,
+  select(Site, Department, `Ordering Department`, MRN, `Visit Number`, `Patient Class`,
          `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
          `LAST RESULT DATE`, ResultYear, ResultMonth, 
          TestResult, `ED Disch Disposition`, AdmittedIP)
 
-colnames(msbi_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtClass",
+colnames(msbi_flu_subset) <- c("Site", "Department", "OrderingDept", "MRN", "VisitNumber", "PtClass",
                                      "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
                                      "ResultDate", "ResultYear", "ResultMonth", 
                                      "TestResult", "EDDispo", "AdmittedIP")
@@ -171,6 +171,13 @@ colnames(msbi_flu_subset) <- c("Site", "Department", "MRN", "VisitNumber", "PtCl
 
 ```{r Combine data for Epic sites and MSBI}
 system_flu_subset <- rbind(epic_sites_flu_subset, msbi_flu_subset)
+
+system_flu_subset <- system_flu_subset %>%
+  mutate(EDOrder = str_detect(OrderingDept, "(Emergency)"))
+
+system_flu_admit_test <- system_flu_subset %>%
+  group_by(Site, PtClass, EDOrder, EDDispo) %>%
+  summarize(Count = n())
 
 ```
 
@@ -372,7 +379,7 @@ scc_sun_epic_crosswalk <- full_join(scc_sun_flu_ed_ip, epic_result_dec19_summary
 # Summarize by date
 scc_sun_epic_crosswalk_daily_sum <- scc_sun_epic_crosswalk %>%
   group_by(Site, ResultDate) %>%
-  summarize(LISTotal = sum(Count),
-            EpicTotal = sum(Volume),
+  summarize(LISTotal = sum(Count, na.rm = TRUE),
+            EpicTotal = sum(Volume, na.rm = TRUE),
             Test = LISTotal == EpicTotal)
 ```
