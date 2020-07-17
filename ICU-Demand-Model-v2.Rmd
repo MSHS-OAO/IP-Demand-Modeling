@@ -92,8 +92,15 @@ seir_census_df_raw <- read_excel(paste0(user_directory, "/SEIR Model Outputs/SEI
 
 seir_admit_prob_df_raw <- read_excel(paste0(user_directory, "/SEIR Model Outputs/SEIR Model Admissions Probability by Site 2020-06-25.xlsx"))
 
+# Import flu test data from Epic
+# Import FY2019 flu test data for Epic sites
+epic_sites_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/Epic Sites Lab Ordering Dept FY2019 2020-07-16.xlsx"))
+
+# Import FY2019 flu test data for MSBI
+msbi_flu_raw <- read_excel(paste0(user_directory, "/Flu Test Data/MSBI Lab Ordering Dept FY2019 2020-07-16.xlsx"))
+
 # 
-# Import analysis reference
+# Import analysis reference for discharge data
 reference_file <- paste0(user_directory, "/IP Discharge Data/Analysis Reference 2020-06-11.xlsx")
 ref_sheets <- excel_sheets(reference_file)
 
@@ -108,6 +115,11 @@ rb_charge_ipd_ref <- ref_data[[5]]
 rb_charge_site_ref <- ref_data[[6]]
 rb_charge_accom_ref <- ref_data[[7]]
 
+# Import analysis reference for Epic data
+epic_reference_file <- paste0(user_directory, "/Flu Test Data/Analysis Reference 2020-07-08.xlsx")
+
+epic_site_ref <- read_excel(epic_reference_file, sheet = "Epic Site Lookup")
+
 ```
 
 
@@ -117,6 +129,10 @@ dm_covid_days_df <- covid_ip_days_df_raw
 
 # Remove duplicates
 dm_covid_days_df <- unique(dm_covid_days_df)
+
+# Remove encounters with sites as UNDETERMINED
+dm_covid_days_df <- dm_covid_days_df %>%
+  filter(IP_SITE != "UNDETERMINED")
 
 # Convert dates from characters to dates
 dm_covid_days_df <- dm_covid_days_df %>%
@@ -206,7 +222,7 @@ epic_covid_census <- epic_covid_census %>%
 
 # Subset Epic census data to include non-ED locations and selected columns
 epic_covid_census_subset <- epic_covid_census %>%
-  filter(ED_Loc == FALSE) %>%
+  filter(ED_Loc == FALSE & !is.na(Site)) %>%
   select(Site, MRN, Encounter, CensusDate,
          DEPARTMENT_NAME, EpicInfection, 
          GROUP, `SERVICE GROUPER`, BED_USE, ACCOMMODATION_CODE,
@@ -804,6 +820,338 @@ covid_census_project <- function(site) {
 
 ```
 
+```{r Preprocess Epic flu data for Epic sites}
+epic_sites_flu_df <- epic_sites_flu_raw
+
+# Filter out non-ED or non-IP flu tests
+epic_sites_flu_df <- epic_sites_flu_df %>%
+  filter(`Patient Class` == "Emergency" | `Patient Class` == "Inpatient" & !is.na(`Patient Class`))
+
+# Crosswalk sites
+epic_sites_flu_df <- left_join(epic_sites_flu_df, epic_site_ref, by = c("Location" = "Location"))
+
+
+# Determine order and result months
+epic_sites_flu_df <- epic_sites_flu_df %>%
+  mutate(OrderYear = year(`Order Date`),
+         OrderMonth = month(`Order Date`), 
+         ResultYear = year(`LAST RESULT DATE`),
+         ResultMonth = month(`LAST RESULT DATE`),
+         TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
+         AdmittedIP = `Patient Class` == "Inpatient" | (`Patient Class` == "Emergency" & `ED Disch Disposition` == "Admit"),
+         EDOrder = str_detect(`Ordering Department`, regex("EMERGENCY", ignore_case = TRUE)))
+
+# Subset dataframe
+epic_sites_flu_subset <- epic_sites_flu_df %>%
+  select(Site, Department, `Ordering Department`, MRN, `Visit Number`, `Patient Class`,
+         `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
+         `LAST RESULT DATE`, ResultYear, ResultMonth, 
+         TestResult, `ED Disch Disposition`, AdmittedIP, EDOrder)
+
+colnames(epic_sites_flu_subset) <- c("Site", "Department", "OrderingDept", "MRN", "VisitNumber", "PtClass",
+                                     "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
+                                     "ResultDate", "ResultYear", "ResultMonth", 
+                                     "TestResult", "EDDispo", "AdmittedIP", "EDOrder")
+
+```
+
+
+```{r Preprocess Epic flu data for MSBI}
+msbi_flu_df <- msbi_flu_raw
+
+# Create column for site name
+msbi_flu_df$Site <- "MSBI"
+
+# Determine order and result months
+msbi_flu_df <- msbi_flu_df %>%
+  mutate(OrderYear = year(`Order Date`),
+         OrderMonth = month(`Order Date`), 
+         ResultYear = year(`LAST RESULT DATE`),
+         ResultMonth = month(`LAST RESULT DATE`),
+         TestResult = ifelse(!is.na(`MSHS Positive Flu Result (ORD)`), "Flu Positive", "Flu Negative"),
+         AdmittedIP = NA,
+         EDOrder = str_detect(`Ordering Department`, regex("EMERGENCY", ignore_case = TRUE))) 
+
+# Subset dataframe
+msbi_flu_subset <- msbi_flu_df %>%
+  select(Site, Department, `Ordering Department`, MRN, `Visit Number`, `Patient Class`,
+         `Order ID`, `Order Description`, `Order Date`, OrderYear, OrderMonth,
+         `LAST RESULT DATE`, ResultYear, ResultMonth, 
+         TestResult, `ED Disch Disposition`, AdmittedIP, EDOrder)
+
+colnames(msbi_flu_subset) <- c("Site", "Department", "OrderingDept", "MRN", "VisitNumber", "PtClass",
+                                     "OrderID", "OrderDesc", "OrderDate", "OrderYear", "OrderMonth",
+                                     "ResultDate", "ResultYear", "ResultMonth", 
+                                     "TestResult", "EDDispo", "AdmittedIP", "EDOrder")
+
+```
+
+
+```{r Combine data for Epic sites and MSBI}
+system_flu_subset <- rbind(epic_sites_flu_subset, msbi_flu_subset)
+
+```
+
+
+```{r Create dataframe with total days in each month}
+fy2019_dates <- seq(from = as.Date("1/1/19", format = "%m/%d/%y"), to = as.Date("12/31/19", format = "%m/%d/%y"),
+                    by = 1)
+
+days_per_month <- data.frame("Date" = fy2019_dates)
+
+days_per_month <- days_per_month %>%
+  mutate(Month = month(Date),
+         Year = year(Date),
+         MonthYear = as.Date(paste0(Month, "/1/", Year), format = "%m/%d/%Y"))
+
+days_per_month <- days_per_month %>%
+  group_by(Year, Month, MonthYear) %>%
+  summarize(DaysPerMonth = n()) %>%
+  mutate(EndDate = MonthYear + DaysPerMonth - 1) %>%
+  ungroup()
+
+days_per_month_site <- days_per_month[rep(row.names(days_per_month), length(unique(system_flu_subset$Site))), ]
+
+site_list <- data.frame("Site" = unique(system_flu_subset$Site), stringsAsFactors = FALSE)
+site_list <- data.frame("Site" = site_list[rep(row.names(site_list), nrow(days_per_month)), ], 
+                        stringsAsFactors = FALSE)
+site_list <- site_list %>%
+  arrange(Site)
+
+site_start_dates <- system_flu_subset %>%
+  group_by(Site, OrderYear) %>%
+  summarize(DataStartDate = as.Date(min(OrderDate), format = "%Y-%m-%d"),
+            DataStartMonth = OrderMonth[which.min(OrderDate)])
+
+days_per_month_site <- cbind(days_per_month_site, site_list)
+
+days_per_month_site <- left_join(days_per_month_site, site_start_dates, 
+                                 by = c("Site" = "Site", 
+                                        "Year" = "OrderYear"))
+
+days_per_month_site <- days_per_month_site %>%
+  mutate(DaysPerMonth = ifelse(DataStartDate == as.Date("2019-01-01", format = "%Y-%m-%d"), 
+                                DaysPerMonth,
+                                ifelse(DataStartMonth > Month, 0,
+                                       ifelse(DataStartMonth == Month, EndDate - DataStartDate + 1, 
+                                              DaysPerMonth))))
+
+days_per_month_site <- days_per_month_site %>%
+  select(Site, Year, Month, MonthYear, DaysPerMonth)
+
+```
+
+
+```{r Format flu data for graphing volume trends}
+
+# Determine number of days in each month
+system_daily_volume <- system_flu_subset %>%
+  group_by(OrderYear, OrderMonth, OrderDate) %>%
+  summarize(Count = n())
+
+system_flu_subset$Site <- factor(system_flu_subset$Site, levels = site_order, ordered = TRUE)
+
+system_flu_subset <- system_flu_subset %>%
+  mutate(OrderMonthYear = as.Date(paste0(OrderMonth, "/1/", OrderYear), format = "%m/%d/%Y")) %>%
+  arrange(Site)
+
+system_flu_subset <- left_join(system_flu_subset, days_per_month_site[ , c("Site", "MonthYear", "DaysPerMonth")], 
+                               by = c("Site" = "Site",
+                               "OrderMonthYear" = "MonthYear"))
+
+# Summarize data for graphing
+site_daily_flu_volume <- system_flu_subset %>%
+  group_by(Site, OrderDate) %>%
+  summarize(VolumeOrdered = n())
+
+site_monthly_flu_volume <- system_flu_subset %>%
+  group_by(Site, OrderMonthYear, DaysPerMonth) %>%
+  summarize(VolumeOrdered = n()) %>%
+  mutate(DailyAverage = VolumeOrdered / DaysPerMonth) 
+
+site_monthly_flu_volume_melt <- melt(site_monthly_flu_volume, 
+                                     id.vars = c("Site", "OrderMonthYear"),
+                                     measure.vars = c("VolumeOrdered", "DailyAverage"))
+
+flu_facet_labels <- c(VolumeOrdered = "Total Ordered", DailyAverage = "Daily Average Ordered")
+
+flu_test_volume <- ggplot(data = site_monthly_flu_volume_melt, aes(x = OrderMonthYear, y = value, na.rm = TRUE)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = flu_facet_labels)) +
+  labs(title = "FY2019 Flu Test Volume by Site (ED and IP)", x = "Order Month", y = "Flu Test Volume") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
+  
+
+```
+
+
+```{r Graph positive flu tests}
+site_test_results <- system_flu_subset %>%
+  group_by(Site, OrderDate, OrderMonthYear, DaysPerMonth) %>%
+  summarize(PositiveTests = sum(TestResult == "Flu Positive"),
+            TotalTests = n()) %>%
+  mutate(PercentPositive = PositiveTests / TotalTests * 100)
+
+site_monthly_test_results <- site_test_results %>%
+  group_by(Site, OrderMonthYear, DaysPerMonth) %>%
+  summarize(PositiveTests = sum(PositiveTests),
+            TotalTests = sum(TotalTests)) %>%
+  mutate(DailyAverage = PositiveTests / DaysPerMonth,
+         PercentPositive = PositiveTests / TotalTests * 100)
+
+site_monthly_test_results_melt <- melt(site_monthly_test_results, id.vars = c("Site", "OrderMonthYear"),
+                                       measure.vars = c("PositiveTests", "DailyAverage"))
+
+test_results_facet <- c(PositiveTests = "Total Positive", DailyAverage = "Daily Average Positive")
+
+flu_positive_volume <- ggplot(data = site_monthly_test_results_melt, aes(x = OrderMonthYear, y = value, na.rm = TRUE)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = test_results_facet)) +
+  labs(title = "FY2019 Positive Flu Tests by Site (ED and IP)", x = "Order Month", y = "Flu Test Volume") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
+
+```
+
+
+```{r Preprocess IP discharge data to crosswalk with Epic data}
+
+# Select relevant columsn and remove "I" at end of encounters for matching with Epic flu data
+ip_disch_epic_cw_subset <- ip_disch_df_raw %>%
+  select(`Encounter No`, Msmrn, `Facility Msx`,
+         `Admit Type Desc Msx`, `Admit Dt Src`, `Dsch Dt Src`,
+         `Icu Days Msx`, `Los No Src`) %>%
+  mutate(VisitNumber = ifelse(substr(`Encounter No`, nchar(`Encounter No`), nchar(`Encounter No`)) == "I",
+                              substr(`Encounter No`, 1, nchar(`Encounter No`) - 1), `Encounter No`))
+
+# Create dataframe for crosswalking with IP data
+system_flu_crosswalk <- system_flu_subset
+
+# Remove "QB" from beginning of any MSQ encounters
+system_flu_crosswalk <- system_flu_crosswalk %>%
+  mutate(VisitNumber = ifelse(substr(VisitNumber, 1, 2) == "QB", substr(VisitNumber, 3, nchar(VisitNumber)),
+                              VisitNumber))
+
+# Crosswalk Epic flu data with IP discharge data based on visit number
+epic_ip_disch_crosswalk <- left_join(system_flu_crosswalk, ip_disch_epic_cw_subset, by = c("VisitNumber" = "VisitNumber"))
+
+epic_ip_disch_crosswalk$IPAdmission <- !is.na(epic_ip_disch_crosswalk$`Encounter No`)
+
+# Test to see percentage of patients classified as IP in Epic who have IP billing charges
+ip_billing_check <- epic_ip_disch_crosswalk %>%
+  group_by(Site, PtClass) %>%
+  summarize(IPBill = sum(IPAdmission),
+            NoIPBill = sum(!IPAdmission),
+            IPBillPercent = IPBill / n(),
+            NoIPBillPercent = NoIPBill / n())
+
+```
+
+
+```{r Determine and graph patients admitted inpatient with positive flu tests}
+# Subset crosswalked data to only include patients admitted IP (patients with an inpatient billing charge)
+ip_admissions <- epic_ip_disch_crosswalk %>%
+  filter(IPAdmission)
+
+flu_positive_ip_admissions <- epic_ip_disch_crosswalk %>%
+  filter(IPAdmission & TestResult == "Flu Positive")
+
+flu_positive_admits_monthly <- flu_positive_ip_admissions %>%
+  group_by(Site, OrderMonthYear, DaysPerMonth) %>%
+  summarize(TotalPatients = n()) %>%
+  mutate(DailyAverage = TotalPatients / DaysPerMonth) 
+
+flu_positive_admits_melt <- melt(flu_positive_admits_monthly, id.vars = c("Site", "OrderMonthYear"),
+                                       measure.vars = c("TotalPatients", "DailyAverage"))
+
+flu_positive_admits_facet <- c(TotalPatients = "Total Patients", DailyAverage = "Daily Average")
+
+admitted_flu_positive_volume <- ggplot(data = flu_positive_admits_melt, aes(x = OrderMonthYear, y = value, na.rm = TRUE)) +
+  geom_line(aes(color = Site)) +
+  geom_point(aes(shape = Site, color = Site)) +
+  facet_grid(variable ~ ., scales = "free", labeller = labeller(variable = flu_positive_admits_facet)) +
+  labs(title = "FY2019 Admitted Patients with Positive Flu Tests", 
+       x = "Order Month", y = "Volume of Patients") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "right",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+  scale_color_manual(name = "Site", values = sinai_colors[1:6]) +
+  scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
+
+```
+
+
+```{r Summarize patient days for admitted flu patients}
+
+flu_positive_ip_admissions <- flu_positive_ip_admissions %>%
+  mutate(ICUDays = `Icu Days Msx`,
+         NonICUDays = `Los No Src` - ICUDays)
+
+days_per_month_flu_season <- days_per_month %>%
+  mutate(FluMonth = Month <= 3 | Month >= 11)
+
+flu_season_days <- days_per_month_flu_season %>%
+  group_by(Year) %>%
+  summarize(FluSeasonDays = sum(DaysPerMonth[FluMonth]))
+
+flu_positive_ip_days_summary <- flu_positive_ip_admissions %>%
+  group_by(Site) %>%
+  summarize(TotalICUDays = sum(ICUDays),
+            TotalNonICUDays = sum(NonICUDays),
+            ICUADC = TotalICUDays / flu_season_days$FluSeasonDays,
+            NonICUADC = TotalNonICUDays / flu_season_days$FluSeasonDays)
+
+flu_positive_ip_days_summary$Site <- factor(flu_positive_ip_days_summary$Site,
+                                            levels = site_order, ordered = TRUE)
+
+flu_positive_ip_days_summary <- flu_positive_ip_days_summary %>%
+  arrange(Site)
+
+# Create table summarizing flu positive patient days and ADC
+flu_positive_census_kable <- kable(flu_positive_ip_days_summary, format = "html", escape = FALSE, align = "c", 
+      col.names = c("Site", "ICU Days", "Non-ICU Days", "ICU ADC", "Non-ICU ADC"),
+      caption = "Census Impact of Admitted Flu Positive Patients",
+      digits = 1) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(4:5), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:5), background = "inherit", color = "inherit")
+
+
+```
+
+
 ```{r Preprocess room and board data to determine daily census changes during flu season}
 rb_charge_df <- rb_charge_df_raw
 
@@ -1038,28 +1386,6 @@ covid_ss_flu_census_add <- covid_ss_flu_census_add %>%
 
 ```
 
-```{r Create kable for census additions due to flu and COVID steady state}
-census_additions_table <- function(site) {
-  site <- site
-
-  census_add_site <- covid_ss_flu_census_add %>%
-    filter(Site == site)
-
-  census_add_site$Site <- NULL
-
-  kable(census_add_site, format = "html", escape = FALSE, align = "c", digits = 1,
-      col.names =c("Scenario", "IP ADC", "Critical Care ADC"),
-      caption = paste(site, " Census Additions")) %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1), border_right = "thin solid lightgray", background = "white") %>%
-  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-
-  column_spec(column = c(1:3), background = "inherit", color = "inherit") %>%
-  add_header_above(c(" " = 1, "Census Additions" = 2), background = c("white", sinai_colors[1]), color = "white", line = FALSE)
-}
-
-```
-
 
 ```{r Plot ADC of lowest non flu and high flu month}
 
@@ -1106,6 +1432,30 @@ low_high_flu_month_plot <- ggplot(data = ms_flu_low_high_months_site, aes(x = Si
   scale_y_continuous(expand = c(0, 0, 0.1, 0))
 
 ```
+
+
+```{r Create kable for census additions due to flu and COVID steady state}
+census_additions_table <- function(site) {
+  site <- site
+
+  census_add_site <- covid_ss_flu_census_add %>%
+    filter(Site == site)
+
+  census_add_site$Site <- NULL
+
+  kable(census_add_site, format = "html", escape = FALSE, align = "c", digits = 1,
+      col.names =c("Scenario", "IP ADC", "Critical Care ADC"),
+      caption = paste(site, " Census Additions")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1), border_right = "thin solid lightgray", background = "white") %>%
+  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+
+  column_spec(column = c(1:3), background = "inherit", color = "inherit") %>%
+  add_header_above(c(" " = 1, "Census Additions" = 2), background = c("white", sinai_colors[1]), color = "white", line = FALSE)
+}
+
+```
+
 
 ```{r Create visualizations of basic output of SEIR model}
 # Plot MSHS overall census predictions
@@ -1276,6 +1626,38 @@ kable(covid_census_peaks, format = "html", escape = FALSE, align = "c",
 
 ```
 <h4><b>Method 2 provides more conservative critical care census projections and will be used moving forward.</b></h4>
+
+
+### Flu Test Analysis
+#### FY2019 Flu Test Volume (ED and IP)
+```{r Call flu volume plot}
+flu_test_volume
+
+```
+
+#### FY2019 Positive Flu Test Volume (ED and IP)
+```{r Call positive flu test plot}
+flu_positive_volume
+
+```
+
+
+#### Inpatients with Positive Flu Test Results
+```{r Call admitted patients with positive flu tests plots}
+admitted_flu_positive_volume
+
+```
+<br>
+*Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge associated with it. Flu test may have been ordered by ED or IP unit.*
+
+
+```{r Call flu positive inpatient impact to census kable}
+flu_positive_census_kable
+
+```
+<br>
+*Patient days based on total patients days throughout year. ADC based on number of days during flu surge months (Nov-March).*
+
 
 ### Flu Surge Methodology
 #### Flu vs Non-Flu ADC
