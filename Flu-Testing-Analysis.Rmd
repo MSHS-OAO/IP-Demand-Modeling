@@ -306,7 +306,8 @@ ggplot(data = site_monthly_test_results_melt, aes(x = OrderMonthYear, y = value,
 
 ```
 
-
+### Admitted Patients with Positive Flu Tests
+#### Inpatients with Positive Flu Test Results
 ```{r Preprocess IP discharge data to crosswalk with Epic data}
 
 # Select relevant columsn and remove "I" at end of encounters for matching with Epic flu data
@@ -330,7 +331,16 @@ epic_ip_disch_crosswalk <- left_join(system_flu_crosswalk, ip_disch_subset, by =
 
 epic_ip_disch_crosswalk$IPAdmission <- !is.na(epic_ip_disch_crosswalk$`Encounter No`)
 
+# Test to see percentage of patients classified as IP in Epic who have IP billing charges
+ip_billing_check <- epic_ip_disch_crosswalk %>%
+  group_by(Site, PtClass) %>%
+  summarize(IPBill = sum(IPAdmission),
+            NoIPBill = sum(!IPAdmission),
+            IPBillPercent = IPBill / n(),
+            NoIPBillPercent = NoIPBill / n())
+
 ```
+
 
 ```{r Determine patients admitted inpatient with positive flu tests}
 # Subset crosswalked data to only include patients admitted IP (patients with an inpatient billing charge)
@@ -370,9 +380,11 @@ ggplot(data = flu_positive_admits_melt, aes(x = OrderMonthYear, y = value, na.rm
   scale_x_date(date_breaks = "2 months", minor_breaks = "1 month", date_labels = "%b-%y")
 
 ```
-**Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge associated with it. Flu test may have been ordered by ED or IP unit.**
+<br>
+*Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge associated with it. Flu test may have been ordered by ED or IP unit.*
 
-
+### Flu Census Impact
+#### Impact of admitted flu positive patients to ICU and floor census
 ```{r Summarize patient days for admitted flu patients}
 
 flu_positive_ip_admissions <- flu_positive_ip_admissions %>%
@@ -391,7 +403,7 @@ flu_positive_ip_days_summary <- flu_positive_ip_admissions %>%
   summarize(TotalICUDays = sum(ICUDays),
             TotalNonICUDays = sum(NonICUDays),
             ICUADC = TotalICUDays / flu_season_days$FluSeasonDays,
-            NonICUADC = TotalNonICUDays / flu_season_days$FluSeasonDays) %>%
+            NonICUADC = TotalNonICUDays / flu_season_days$FluSeasonDays)
 
 flu_positive_ip_days_summary$Site <- factor(flu_positive_ip_days_summary$Site,
                                             levels = site_order, ordered = TRUE)
@@ -412,4 +424,5 @@ kable(flu_positive_ip_days_summary, format = "html", escape = FALSE, align = "c"
 
 
 ```
-
+<br>
+*Patient days based on total patients days throughout year. ADC based on number of days during flu surge months (Nov-March).*
