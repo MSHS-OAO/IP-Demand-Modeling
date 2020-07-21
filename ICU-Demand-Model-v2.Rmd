@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
 ```
 
 ```{r Install and load packages}
@@ -1550,9 +1550,14 @@ seir_peak_census_kable <- kable(system_summer_peak, format = "html", escape = FA
     + Peak COVID critical care census based on day with highest critical care census, not highest IP census
     + COVID critical care census expanded to include patients on vents not in ICU
 2. COVID Steady State Census
-    + Based on COVID census from 5/15/20-6/7/20
+    + Based on COVID census from 06/08/20-07/07/20
 3. COVID Surge Scenarios
-    + Updated to include difference between historical peak and steady state census
+    + Incorporated July/August peak from DOM SEIR model
+    + Updated future peak scenarios to reflect 25% and 50% historical peak
+    + Projected census for future scenarios updated to reflect difference between steady state COVID census and scenario's peak census
+5. Flu Testing
+    + Incorporated flu test data for FY2019 from Epic
+    + Epic sites: Crosswalked with IP billing data to determine patients with positive flu test results who are ultimately admitted IP or already admitted IP. Utilized this data to quantify impact of these patients to floor and ICU ADC.
 4. Flu Surge Census Impact
     + Incorporated room and board charge data to determine census increases during flu season
     + Flu months: November, December, January, February, March
@@ -1591,6 +1596,11 @@ MSQ: Based on unit and bed history described below.</br>
 * MSQ 5 East: PACU used as ICU from 3/28/20-5/6/20
 * MSQ 6 East: All beds in IMCU used as ICU from 3/28/20-5/21/20. From 5/22/20 on, rooms 601, 606, and 608 converted back to IMCU.
 * MSQ 2 East: Rooms 208-217 used as ICU from 5/7/20-5/19/20
+<h4></h4></br>
+
+<h4><b>Flu Test Analysis:</b></h4>
+**Data Source:**</br>
+Based on Epic flu tests ordered during FY2019. Determination of IP admission based on crosswalk with IP discharge billing data.
 <h4></h4></br>
 
 <h4><b>Flu Surge Census:</b></h4>
@@ -1648,7 +1658,7 @@ admitted_flu_positive_volume
 
 ```
 <br>
-*Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge associated with it. Flu test may have been ordered by ED or IP unit.*
+*Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge. Flu test may have been ordered by ED or IP unit.*
 
 
 ```{r Call flu positive inpatient impact to census kable}
@@ -1656,7 +1666,7 @@ flu_positive_census_kable
 
 ```
 <br>
-*Patient days based on total patients days throughout year. ADC based on number of days during flu surge months (Nov-March).*
+*Patient days based on total patients days throughout year. ADC based on number of days during flu surge months (November-March).*
 
 
 ### Flu Surge Methodology
