@@ -1,0 +1,181 @@
+---
+title: "IP Census Validation"
+author: "HSO"
+date: "07/21/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r Install and load packages}
+# Code for analyzing historical COVID-19 IP census, admissions, and discharges ----------------------
+
+#Install and load necessary packages --------------------
+#install.packages("readraw_dfl")
+#install.packages("writeraw_dfl")
+#install.packages("ggplot2")
+#install.packages("lubridate")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("svDialogs")
+#install.packages("stringr")
+#install.packages("formattable")
+# install.packages("ggpubr")
+# install.packages("rprojroot")
+
+# Load libraries ------------------------
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
+library(reshape2)
+library(knitr)
+library(rmarkdown)
+library(kableExtra)
+
+```
+
+```{r Determine drive mapping}
+rm(list = ls())
+
+if (list.files("J://") == "Presidents") {
+  user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations"
+} else {
+  user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations"
+}
+
+```
+
+
+```{r Import raw data}
+# Set working directory and select raw data ----------------------------
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
+
+site_order <- c("MSH", "MSQ", "MSB", "MSBI", "MSM", "MSW", "MSHS")
+
+# Import Epic census data ----------------------
+# Find Epic census files for May-June 2020
+epic_census_file_folder <- paste0(user_directory, "/Covid IP Staffing Model/Data/Epic Census Data")
+
+# List files using regular expression
+epic_census_files <- list.files(path = epic_census_file_folder, 
+                             pattern = "^(ADT_Bed_Census_Daily_By_Dept_Summary )[0-9]{4}-((05)|(06))-[0-9]{2}.xlsx")
+
+# Read excel files
+epic_census_list <- lapply(epic_census_files, function(x) read_excel(path = paste0(epic_census_file_folder, "\\", x)))
+
+# Import DivePort data for BISLW for comparison ---------------
+# Find files
+diveport_file_folder <- paste0(user_directory, "/COVID Scenario Testing/DivePort Census Data")
+
+# List files using regular expression
+diveport_census_files <- list.files(path = diveport_file_folder, 
+                                   pattern = "^(MS){1}.*(2020-07-21.xls)")
+
+# Read excel files skipping first 7 rows
+diveport_census_list <- lapply(diveport_census_files, function(x) 
+  read_excel(path = paste0(diveport_file_folder, "\\", x), skip = 7,
+             col_types = "text"))
+
+# Import analysis reference file
+reference_file <- paste0(diveport_file_folder, "/Analysis Reference 2020-07-21.xlsx")
+reference_sheets <- excel_sheets(reference_file)
+
+ref_data <- lapply(reference_sheets, function(x) read_excel(reference_file, sheet = x))
+
+site_ref <- ref_data[[1]]
+diveport_unit_mapping <- ref_data[[2]]
+epic_unit_inclusion <- ref_data[[3]]
+
+```
+
+
+```{r Combine all Epic census files into 1 dataframe}
+epic_census_comb <- NULL
+
+for(i in 1:length(epic_census_list)){
+  epic_census_comb <- rbind(epic_census_comb, epic_census_list[[i]])
+}
+
+```
+
+
+```{r Format Epic census data}
+epic_census_comb <- epic_census_comb %>%
+  mutate(CensusYear = substr(YEAR_MONTH, 1, 4),
+         CensusMonth = substr(YEAR_MONTH, 5, 6),
+         CensusDate = as.Date(paste0(CensusMonth, "/", DAY_OF_MONTH, "/", CensusYear),
+                              format = "%m/%d/%Y"))
+
+
+epic_census_comb <- left_join(epic_census_comb, site_ref, 
+                              by = c("LOC_NAME" = "LOC_NAME"))
+
+```
+
+
+```{r Format DivePort census data}
+# Determine site for each DivePort data file
+diveport_site <- NULL
+for(i in 1:length(diveport_census_files)){
+  diveport_site[i] <- substr(str_extract(diveport_census_files[i], "[A-Z]+\\s"),
+                             1, nchar(str_extract(diveport_census_files[i], "[A-Z]+\\s")) - 1)
+}
+
+
+# Clean up raw data
+diveport_census_melt <- diveport_census_list
+for(i in 1:length(diveport_census_melt)){
+  # Remove last 6 rows of data from DivePort data
+  diveport_census_melt[[i]] <- diveport_census_melt[[i]][1:(nrow(diveport_census_melt[[i]]) - 6), ]
+  
+  # Remove "Total" column
+  diveport_census_melt[[i]]$Total <- NULL
+  
+  # Add in site column based on file name
+  diveport_census_melt[[i]]$Site <- diveport_site[i]
+  
+  # Fix  dates converted to text
+  # Subtract 1 to account for difference between Excel and R in starting at 1 vs. 0 for days since 01/01/1900
+  # Subtract 1 again to account for Excel incorrectly counting 1900 as a leap year
+  diveport_census_melt[[i]]$`Census Date` <- as.Date(as.numeric(diveport_census_melt[[i]]$`Census Date`) - 2,
+                                                     origin = "1900-01-01")
+  
+  # Melt data frame to get in census format
+  diveport_census_melt[[i]] <- melt(diveport_census_melt[[i]],
+                                    id.vars = c("Site", "Census Date"),
+                                    variable.name = "Unit",
+                                    value.name = "Census")
+  
+  # Replace census NA with 0 and convert unit from factor to character for binding
+  diveport_census_melt[[i]] <- diveport_census_melt[[i]] %>%
+    mutate(Census = ifelse(is.na(Census), 0, Census),
+           Unit = as.character(Unit))
+  
+  # Rename columns
+  colnames(diveport_census_melt[[i]]) <- c("Site", "CensusDate", "Unit", "Census")
+  
+}
+
+# Merge data from all 3 sites
+diveport_census_master <- NULL
+
+for(i in 1:length(diveport_census_melt)){
+  diveport_census_master <- rbind(diveport_census_master, diveport_census_melt[[i]])
+}
+
+
+
+```
