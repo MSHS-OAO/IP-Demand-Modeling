@@ -106,8 +106,27 @@ epic_unit_inclusion <- ref_data[[3]]
 epic_census_comb <- NULL
 
 for(i in 1:length(epic_census_list)){
+  # Remove any incorrect dates in census data
+  order_dates <- epic_census_list[[i]] %>%
+    group_by(DAY_OF_MONTH) %>%
+    summarize(Count = n()) %>%
+    arrange(desc(Count))
+  
+  correct_date <- order_dates$DAY_OF_MONTH[1]
+  
+  epic_census_list[[i]] <- epic_census_list[[i]] %>%
+    filter(DAY_OF_MONTH == correct_date)
+  
   epic_census_comb <- rbind(epic_census_comb, epic_census_list[[i]])
 }
+
+# for(i in 1:length(epic_census_list)){
+#   fix_date <- epic_census_list[[i]] %>%
+#     group_by(DAY_OF_MONTH) %>%
+#     summarize(Count = n()) %>%
+#     arrange(desc(Count))
+#   
+# }
 
 ```
 
@@ -122,6 +141,25 @@ epic_census_comb <- epic_census_comb %>%
 
 epic_census_comb <- left_join(epic_census_comb, site_ref, 
                               by = c("LOC_NAME" = "LOC_NAME"))
+
+# Subset Epic census based on site and key columns
+epic_census_subset <- epic_census_comb %>%
+  filter(Site == "MSB" | Site == "MSW" | Site == "MSM") %>%
+  select(Site, DEPARTMENT_NAME, OCCUPIED_COUNT, CensusDate)
+
+# Determine whether department should be included in validation
+epic_census_subset <- left_join(epic_census_subset, 
+                                epic_unit_inclusion[ , c("SITE", "DEPARTMENT_NAME", "IncludeInValidation?")], 
+                                by = c("Site" = "SITE", "DEPARTMENT_NAME" = "DEPARTMENT_NAME"))
+
+epic_census_subset <- epic_census_subset %>%
+  filter(`IncludeInValidation?` == "Yes") %>%
+  mutate(Source = "Epic",
+         OCCUPIED_COUNT = as.numeric(OCCUPIED_COUNT))
+
+epic_census_subset <- epic_census_subset[ , c("Site", "CensusDate", "DEPARTMENT_NAME", "OCCUPIED_COUNT", "IncludeInValidation?", "Source")]
+
+colnames(epic_census_subset) <- c("Site", "CensusDate", "EpicUnit", "Census", "Include", "Source")
 
 ```
 
@@ -176,6 +214,92 @@ for(i in 1:length(diveport_census_melt)){
   diveport_census_master <- rbind(diveport_census_master, diveport_census_melt[[i]])
 }
 
+diveport_census_master <- diveport_census_master %>%
+  filter(month(CensusDate) == 5 | month(CensusDate) == 6) %>%
+  mutate(Census = as.numeric(Census))
 
+# Determine which units to include in census validation
+diveport_census_master <- left_join(diveport_census_master, diveport_unit_mapping,
+                                    by = c("Site" = "Site", "Unit" = "NursingUnit"))
+
+# Subset adult IP med-surg units only
+diveport_census_subset <- diveport_census_master %>%
+  filter(AdultIPMS == "Yes") %>%
+  select(Site, CensusDate, EpicMapping, Census, AdultIPMS) %>%
+  mutate(Source = "DivePort")
+
+# Rename columns for binding with Epic data
+colnames(diveport_census_subset) <- c("Site", "CensusDate", "EpicUnit", "Census", "Include", "Source")
+
+```
+
+
+```{r Combine Epic and DivePort data}
+may_june_census_master <- rbind(epic_census_subset, diveport_census_subset)
+
+```
+
+
+```{r Custom function for plotting census for each site}
+
+site_unit_census_comparisons <- function(data, site){
+  site_census <- data %>% 
+    filter(Site == site)
+  
+  units <- unique(site_census$EpicUnit)
+  
+  for(i in 1:length(units)){
+    site_unit_census <- site_census %>%
+      filter(EpicUnit == units[i])
+    
+    site_census_plot <- ggplot(data = site_unit_census, aes(x = CensusDate, y = Census, color = Source, shape = Source)) +
+      geom_line(aes(linetype = Source)) +
+      geom_point() +
+      labs(title = paste0(site, " Census Comparison: ", units[i]), x = "Date", y = "Census") +
+      theme_bw() +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "lightgrey"),
+        panel.grid.minor = element_line(color = "lightgrey")) +
+      scale_color_manual(name = "Data Source", values = sinai_colors[1:2]) +
+      scale_shape(name = "Data Source") +
+      scale_linetype_manual(name = "Data Source", values = c("solid", "dashed")) +
+      scale_x_date(date_breaks = "8 days", minor_breaks = "4 days", date_labels = "%m/%d")
+    
+    print(site_census_plot)
+
+    
+  }
+}
+
+
+```
+
+
+### MSB Census Comparison
+#### Census comparison between Epic and DivePort by unit
+```{r Plot MSB census comparisons}
+site_unit_census_comparisons(data = may_june_census_master, site = "MSB")
+
+```
+
+
+### MSW Census Comparison
+#### Census comparison between Epic and DivePort by unit
+```{r Plot MSW census comparisons}
+site_unit_census_comparisons(data = may_june_census_master, site = "MSW")
+
+```
+
+
+### MSM Census Comparison
+#### Census comparison between Epic and DivePort by unit
+```{r Plot MSM census comparisons}
+site_unit_census_comparisons(data = may_june_census_master, site = "MSM")
 
 ```
