@@ -9,6 +9,14 @@ library(odbc)
 library(dbplyr)
 library(dplyr)
 library(lubridate)
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
 
 # Establish connection to Oracle database
 con <- dbConnect(odbc(), 
@@ -45,3 +53,16 @@ oracle_covid_census_df <- tbl(con, "COVID_IP_PATIENT_DAYS_DETAIL") %>%
 
 end2 <- proc.time() - start2
 
+covid_census_subset <- oracle_covid_census_df %>%
+  select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE, CENSUS_DEPT, PAT_DAY_INF_STATUS) %>%
+  arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
+
+ip_census_subset <- oracle_ip_census_df %>%
+  arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
+
+ip_census_test_df <- left_join(ip_census_subset, covid_census_subset,
+                          by = c("CSN" = "CSN", "CENSUS_DATE" = "CENSUS_DATE", "CENSUS_DEPT"))
+
+ip_census_test_df <- ip_census_test_df %>%
+  mutate(MRNTest = ifelse(!is.na(PAT_DAY_INF_STATUS), MRN.x == MRN.y, NA),
+         EncTest = ifelse(!is.na(PAT_DAY_INF_STATUS), EXTERNAL_ENC_ID.x == EXTERNAL_ENC_ID.y, NA))
