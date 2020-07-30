@@ -1,9 +1,10 @@
 ---
 title: "Adult Med Surg Critical Care Demand"
 author: "HSO"
-date: "5/20/2020"
 output: html_document
 ---
+
+#### Dashboard creation date: `r Sys.Date()`
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
