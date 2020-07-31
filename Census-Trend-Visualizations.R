@@ -18,6 +18,8 @@ library(stringr)
 library(formattable)
 library(scales)
 
+
+
 # Establish connection to Oracle database
 con <- dbConnect(odbc(), 
                  Driver = "Oracle in OraClient12Home1", 
@@ -53,16 +55,40 @@ oracle_covid_census_df <- tbl(con, "COVID_IP_PATIENT_DAYS_DETAIL") %>%
 
 end2 <- proc.time() - start2
 
-covid_census_subset <- oracle_covid_census_df %>%
-  select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE, CENSUS_DEPT, PAT_DAY_INF_STATUS) %>%
+# Subset and format Oracle  data
+# Remove duplicates and select relevant columns from COVID data
+covid_census_subset <- unique(oracle_covid_census_df)
+
+covid_census_subset <- covid_census_subset %>%
+  select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE, 
+         CENSUS_DEPT, CENSUS_ROOM, CENSUS_BED,
+         ACCOMMODATION_DESC,
+         PAT_DAY_INF_STATUS) %>%
   arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
 
-ip_census_subset <- oracle_ip_census_df %>%
+# Remove duplicates from IP census data
+ip_census_subset <- unique(oracle_ip_census_df)
+
+ip_census_subset <- ip_census_subset %>%
   arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
 
-ip_census_test_df <- left_join(ip_census_subset, covid_census_subset,
-                          by = c("CSN" = "CSN", "CENSUS_DATE" = "CENSUS_DATE", "CENSUS_DEPT"))
 
-ip_census_test_df <- ip_census_test_df %>%
-  mutate(MRNTest = ifelse(!is.na(PAT_DAY_INF_STATUS), MRN.x == MRN.y, NA),
-         EncTest = ifelse(!is.na(PAT_DAY_INF_STATUS), EXTERNAL_ENC_ID.x == EXTERNAL_ENC_ID.y, NA))
+# Crosswalk IP census with COVID data to determine daily COVID volume
+ip_census_crosswalk <- left_join(ip_census_subset, covid_census_subset,
+                          by = c("CSN" = "CSN", 
+                                 "MRN" = "MRN",
+                                 "EXTERNAL_ENC_ID" = "EXTERNAL_ENC_ID",
+                                 "CENSUS_DATE" = "CENSUS_DATE", 
+                                 "CENSUS_DEPT" = "CENSUS_DEPT",
+                                 "CENSUS_ROOM" = "CENSUS_ROOM",
+                                 "ACCOMMODATION_DESC" = "ACCOMMODATION_DESC",
+                                 "CENSUS_BED" = "CENSUS_BED"))
+
+# Format crosswalked data
+ip_census_crosswalk <- ip_census_crosswalk %>%
+  mutate(CensusDate = as.Date(CENSUS_DATE),
+         CensusYear = year(CensusDate),
+         CensusMonth = month(CensusDate),
+         AdjPatInfStat = ifelse(PAT_DAY_INF_STATUS %in% c("COVID-19", "PUI - COVID", "SUSC COVID"),
+                                PAT_DAY_INF_STATUS, NA))
+

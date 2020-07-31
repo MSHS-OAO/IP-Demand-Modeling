@@ -1567,7 +1567,7 @@ seir_peak_census_kable <- kable(system_summer_peak, format = "html", escape = FA
 
 ### Data Sources
 
-<h4><b>Historical ICU Census Analysis</b></h4>
+<h4><b>Historical ICU Census Analysis:</b></h4>
 **Data Source:**</br>
 FY2019 ICU ADC based on billing data for patients discharged from 1/1/2019-12/31/2019.</br>
 Elective and non-elective breakdown based on encounter admit type.</br>
@@ -1639,37 +1639,6 @@ kable(covid_census_peaks, format = "html", escape = FALSE, align = "c",
 <h4><b>Method 2 provides more conservative critical care census projections and will be used moving forward.</b></h4>
 
 
-### Flu Test Analysis
-#### FY2019 Flu Test Volume (ED and IP)
-```{r Call flu volume plot}
-flu_test_volume
-
-```
-
-#### FY2019 Positive Flu Test Volume (ED and IP)
-```{r Call positive flu test plot}
-flu_positive_volume
-
-```
-
-
-#### Inpatients with Positive Flu Test Results
-```{r Call admitted patients with positive flu tests plots}
-admitted_flu_positive_volume
-
-```
-<br>
-*Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge. Flu test may have been ordered by ED or IP unit.*
-
-
-```{r Call flu positive inpatient impact to census kable}
-flu_positive_census_kable
-
-```
-<br>
-*Patient days based on total patients days throughout year. ADC based on number of days during flu surge months (November-March).*
-
-
 ### Flu Surge Methodology
 #### Flu vs Non-Flu ADC
 ```{r Plot summary of ADC for flu and non flu months by site}
@@ -1677,7 +1646,7 @@ flu_nonflu_month_plot
 
 ```
 
-<h4><b>ICUs at each site do not always see a drasticincrease in census during flu months.</b></h4>
+<h4><b>ICUs at each site do not always see a drastic increase in census during flu months.</b></h4>
 </br>
 
 #### Lowest Non-Flu and Highest Flu Month ADC
@@ -1713,6 +1682,38 @@ monthly_adc_plot(site = "MSM")
 ```{r Plot MSW monthly ADC}
 monthly_adc_plot(site = "MSW")
 ```
+
+
+### Flu Test Analysis
+#### FY2019 Flu Test Volume (ED and IP)
+```{r Call flu volume plot}
+flu_test_volume
+
+```
+
+#### FY2019 Positive Flu Test Volume (ED and IP)
+```{r Call positive flu test plot}
+flu_positive_volume
+
+```
+
+
+#### Inpatients with Positive Flu Test Results
+```{r Call admitted patients with positive flu tests plots}
+admitted_flu_positive_volume
+
+```
+<br>
+*Patients assumed to be admitted if Epic encounter associated with flu test has an inpatient billing charge. Flu test may have been ordered by ED or IP unit.*
+
+
+```{r Call flu positive inpatient impact to census kable}
+flu_positive_census_kable
+
+```
+<br>
+*Patient days based on total patients days throughout year. ADC based on number of days during flu surge months (November-March).*
+
 
 ### DOM SEIR Model
 #### Census Outputs of DOM SEIR Predictive Model
