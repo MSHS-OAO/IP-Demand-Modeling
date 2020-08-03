@@ -8,8 +8,8 @@ output: html_document
 ```{r Install and load packages}
 # install.packages("DBI")
 # install.packages("odbc")
-# install.packages("dbplyr")
 # install.packages("dplyr")
+# install.packages("dbplyr")
 # install.packages("lubridate")
 # install.packages("readxl")
 # install.packages("writexl")
@@ -26,8 +26,8 @@ output: html_document
 
 library(DBI)
 library(odbc)
-library(dbplyr)
 library(dplyr)
+library(dbplyr)
 library(lubridate)
 library(readxl)
 library(writexl)
@@ -176,10 +176,65 @@ lookback_period <- 28
 # Determine start date for trending data based on lookback period
 start_date <- (Sys.Date() - 1) - (lookback_period)
 
+# test_df <- census_site_unit_type %>%
+  # filter(CensusSite == "MSW",
+  #        CensusDate > start_date,
+  #        UnitRollUp == "ICU")
+
 test_df <- census_site_unit_type %>%
-  filter(CensusSite == "MSW",
+  filter(CensusSite == "MSH",
          CensusDate > start_date,
-         UnitRollUp == "ICU")
+         UnitRollUp == "Med Surg")
+
+# unit_number <- data.frame("Unit" = as.character(unique(test_df$CENSUS_DEPT)))
+# 
+# unit_number <- unit_number %>%
+#   mutate(Number = row_number(),
+#          Grouping = ceiling(Number / 6))
+# 
+# test_df <- left_join(test_df, unit_number[ , c("Unit", "Grouping")],
+#                      by = c("CENSUS_DEPT" = "Unit"))
+
+
+if (length(unique(test_df$CENSUS_DEPT)) > 6) {
+  unit_number <- data.frame("Unit" = as.character(unique(test_df$CENSUS_DEPT)))
+  
+  unit_number <- unit_number %>%
+    mutate(Number = row_number(), 
+           Grouping = ceiling(Number / 6))
+    
+  test_df <- left_join(test_df, unit_number[ , c("Unit", "Grouping")],
+                       by = c("CENSUS_DEPT" = "Unit"))
+  
+  for (j in 1:max(test_df$Grouping)) {
+    plot_data <- test_df %>%
+      filter(Grouping == j)
+    
+    test_plot <- ggplot(data = plot_data, aes(x = CensusDate, y = Census, color = CENSUS_DEPT, shape = CENSUS_DEPT)) +
+      geom_line() +
+      geom_point() +
+      labs(title = paste0("Census Test ", j, " of ", max(test_df$Grouping)), x = "Date", y = "Census") +
+      theme_bw() +
+      theme(plot.title = element_text(size = 14, hjust = 0.5),
+            legend.position = "bottom",
+            legend.box = "horizontal",
+            legend.title = element_text(size = 10),
+            legend.text = element_text(size = 10),
+            axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
+            axis.text.y = element_text(size = 10),
+            panel.grid.major = element_line(color = "lightgrey"),
+            panel.grid.minor = element_line(color = "lightgrey")) +
+      scale_color_manual(name = "Unit", values = sinai_colors[1:6]) +
+      scale_shape(name = "Unit") +
+      scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
+               expand = c(0, 1))
+    
+    print(test_plot)
+  }
+}
+
+
+
 
 
 ggplot(data = test_df, aes(x = CensusDate, y = Census, color = CENSUS_DEPT, shape = CENSUS_DEPT)) +
@@ -275,14 +330,26 @@ for(i in 1:length(census_sites)) {
     unit_type_df <- site_df %>%
       filter(UnitRollUp == unit_type)
     
-    print(site)
-    print(unit_type)
+    unit_numbers <- data.frame("Unit" = (unique(unit_type_df$CENSUS_DEPT)),
+                               stringsAsFactors = FALSE)
     
-    site_unit_type_plot <- ggplot(data = unit_type_df, 
-                           aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) + #, shape = CENSUS_DEPT)) +
+    unit_numbers <- unit_numbers %>%
+      mutate(Number = row_number(),
+             Grouping = ceiling(Number / 6))
+    
+    unit_type_df <- left_join(unit_type_df, unit_numbers[ , c("Unit", "Grouping")],
+                              by = c("CENSUS_DEPT" = "Unit"))
+    
+    for(k in 1:max(unit_type_df$Grouping)) {
+      plot_unit_type_df <- unit_type_df %>%
+        filter(Grouping == k)
+      
+      site_unit_type_plot <- ggplot(data = plot_unit_type_df, 
+                           aes(x = CensusDate, y = Census, color = CENSUS_DEPT, shape = CENSUS_DEPT)) +
       geom_line() +
       geom_point() +
-      labs(title = paste0(site, " ", unit_type, " Census by Unit"), x = "Date", y = "Census") +
+      labs(title = ifelse(max(unit_type_df$Grouping) == 1, paste0(site, " ", unit_type, " Census by Unit"),
+                          paste0(site, " ", unit_type, " Census by Unit (", k, " of ", max(unit_type_df$Grouping), ")")), x = "Date", y = "Census") +
       theme_bw() +
       theme(plot.title = element_text(size = 14, hjust = 0.5),
             legend.position = "bottom",
@@ -293,13 +360,38 @@ for(i in 1:length(census_sites)) {
             axis.text.y = element_text(size = 10),
             panel.grid.major = element_line(color = "lightgrey"),
             panel.grid.minor = element_line(color = "lightgrey")) +
-      scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(unit_type_df$CENSUS_DEPT))]) +
-      # scale_shape(name = "Unit") +
+      scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(plot_unit_type_df$CENSUS_DEPT))]) +
+      scale_shape(name = "Unit") +
       scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
                expand = c(0, 1))
   
   
   print(site_unit_type_plot)
+      
+    }
+    
+  #   site_unit_type_plot <- ggplot(data = unit_type_df, 
+  #                          aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) + #, shape = CENSUS_DEPT)) +
+  #     geom_line() +
+  #     geom_point() +
+  #     labs(title = paste0(site, " ", unit_type, " Census by Unit"), x = "Date", y = "Census") +
+  #     theme_bw() +
+  #     theme(plot.title = element_text(size = 14, hjust = 0.5),
+  #           legend.position = "bottom",
+  #           legend.box = "horizontal",
+  #           legend.title = element_text(size = 10),
+  #           legend.text = element_text(size = 10),
+  #           axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
+  #           axis.text.y = element_text(size = 10),
+  #           panel.grid.major = element_line(color = "lightgrey"),
+  #           panel.grid.minor = element_line(color = "lightgrey")) +
+  #     scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(unit_type_df$CENSUS_DEPT))]) +
+  #     # scale_shape(name = "Unit") +
+  #     scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
+  #              expand = c(0, 1))
+  # 
+  # 
+  # print(site_unit_type_plot)
     
     
   }
@@ -307,25 +399,6 @@ for(i in 1:length(census_sites)) {
 }
 
 
-# ggplot(data = test_df, 
-#                            aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) + #, shape = CENSUS_DEPT)) +
-#       geom_line() +
-#       geom_point() +
-#       labs(title = paste0(site, " ", unit_type, " Census by Unit"), x = "Date", y = "Census") +
-#       theme_bw() +
-#       theme(plot.title = element_text(size = 14, hjust = 0.5),
-#             legend.position = "bottom",
-#             legend.box = "horizontal",
-#             legend.title = element_text(size = 10),
-#             legend.text = element_text(size = 10),
-#             axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
-#             axis.text.y = element_text(size = 10),
-#             panel.grid.major = element_line(color = "lightgrey"),
-#             panel.grid.minor = element_line(color = "lightgrey")) +
-#       scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(unit_type_df$CENSUS_DEPT))]) +
-#       # scale_shape(name = "Unit") +
-#       scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
-#                expand = c(0, 1))
 
 
 
