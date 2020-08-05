@@ -176,7 +176,7 @@ sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B
 lookback_period <- 28
 
 # Select maximum number of units per graph
-max_num_units <- 7
+max_num_units <- 8
 
 # Determine start date for trending data based on lookback period
 start_date <- (Sys.Date() - 1) - (lookback_period)
