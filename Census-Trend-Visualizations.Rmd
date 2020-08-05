@@ -61,11 +61,18 @@ if (list.files("J://") == "Presidents") {
 ```
 
 
-```{r Import unit mappings reference file}
-unit_mapping <- read_excel(path = paste0(user_directory, "/Epic Census Trending/Epic-Oracle-Census-Unit-Mappings-2020-07-29.xlsx"),
-                           sheet = "UnitMappings",
-                           na = c("", "NA"))
+```{r Import reference data for unit mappings, admit source, and admit type}
 
+
+ref_sheet_names <- excel_sheets(path = paste0(user_directory, "/Epic Census Trending/Epic-Oracle-Census-Unit-Mappings-2020-08-05.xlsx"))
+
+ref_data <- lapply(ref_sheet_names, function(x) {read_xlsx(path = paste0(user_directory, "/Epic Census Trending/Epic-Oracle-Census-Unit-Mappings-2020-08-05.xlsx"), sheet = x, na = c("", "NA"))})
+
+unit_mapping <- ref_data[[1]]
+
+admit_source_mapping <- ref_data[[2]]
+
+admission_type_mapping <- ref_data[[3]]
 
 ```
 
@@ -112,6 +119,34 @@ ip_census_crosswalk <- ip_census_crosswalk %>%
 ip_census_crosswalk <- left_join(ip_census_crosswalk, unit_mapping,
                                  by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
 
+# Crosswalk census data with admit source
+admit_source_mapping <- admit_source_mapping %>%
+  mutate(`EPIC AdmissionSource` = toupper(`EPIC AdmissionSource`))
+
+ip_census_crosswalk <- left_join(ip_census_crosswalk, admit_source_mapping,
+                                 by = c("ADMIT_SOURCE" = "EPIC AdmissionSource"))
+
+# Crosswalk census data with admission type
+admission_type_mapping <- admission_type_mapping %>%
+  mutate(`EPIC AdmissionType` = toupper(`EPIC AdmissionType`))
+
+ip_census_crosswalk <- left_join(ip_census_crosswalk, admission_type_mapping,
+                                 by = c("ADMISSION_TYPE" = "EPIC AdmissionType"))
+
+# Manually update Admission Types of Premature as Newborns
+ip_census_crosswalk <- ip_census_crosswalk %>%
+  mutate(ADMIT_TYPE_DESC_MSX = ifelse(ADMISSION_TYPE == "PREMATURE", 
+                                      "NEWBORN - USE OF THIS CODE NECESSITATES THE USE OF SPECIAL CODES IN THE SOURCE OF ADMISSIONá(DATA ELEMENT 13).", 
+                                      ADMIT_TYPE_DESC_MSX))
+
+# test_df <- ip_census_crosswalk %>%
+#   group_by(CensusSite, ADMISSION_TYPE, ADMIT_TYPE_DESC_MSX) %>%
+#   summarize(Days = n())
+# 
+# test_df2 <- ip_census_crosswalk %>%
+#   group_by(CensusSite, ADMIT_SOURCE, ADMIT_SOURCE_DESC_MSX) %>%
+#   summarize(Days = n())
+
 # Order unit types for plotting
 unit_type_order <- c("ICU", "Med Surg", "COVID Surge", "Peds & Peds ICU", "L&D & Postpartum",
                      "Nursery & NICU", "Psych & Rehab", "ED", "Psych ED", "Non-IP")
@@ -125,7 +160,7 @@ ip_census_crosswalk$UnitRollUp <- factor(ip_census_crosswalk$UnitRollUp,
 
 ```{r Begin summarizing data based on site and unit type}
 census_site_unit_type <- ip_census_crosswalk %>%
-  filter(IPUnit & CensusSite != "MSBI") %>%
+  filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
   group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusDate, CensusYear, CensusMonth) %>%
   summarize(Census = sum(PATIENT_DAY)) %>%
   arrange(CensusSite, CensusDate, UnitRollUp, CensusDate)
