@@ -60,10 +60,15 @@ if (list.files("J://") == "Presidents") {
 
 ```
 
+```{r Import 2019 census data}
+ip_census_2019_df <- read_xlsx(path = paste0(user_directory,
+                                             "/Epic Census Trending/Epic FY2019 IP Census Summary 2020-08-14.xlsx"),
+                                             na = c("", "NA"))
+
+```
+
 
 ```{r Import reference data for unit mappings, admit source, and admit type}
-
-
 ref_sheet_names <- excel_sheets(path = paste0(user_directory, "/Epic Census Trending/Epic-Oracle-Census-Unit-Mappings-2020-08-05.xlsx"))
 
 ref_data <- lapply(ref_sheet_names, function(x) {read_xlsx(path = paste0(user_directory, "/Epic Census Trending/Epic-Oracle-Census-Unit-Mappings-2020-08-05.xlsx"), sheet = x, na = c("", "NA"))})
@@ -76,8 +81,30 @@ admission_type_mapping <- ref_data[[3]]
 
 ```
 
+```{r Reference data}
+# Order unit types for plotting
+unit_type_order <- c("ICU", "Med Surg", "COVID Surge", "Peds & Peds ICU", "L&D & Postpartum",
+                     "Nursery & NICU", "Psych & Rehab", "ED", "Psych ED", "Non-IP")
 
-```{r Subset, format, and crosswalk Oracle data}
+# Sinai color schemes
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE", "#79DCFF", "#8F075B", "#00668A")
+
+# Assume 4 week lookback period for now
+lookback_period <- 28
+
+# Select maximum number of units per graph
+max_num_units <- 8
+
+# Determine start date for trending data based on lookback period
+start_date <- (Sys.Date() - 1) - (lookback_period)
+
+# Select the number of months of ADC to compare data from 2019 to 2020
+months_to_compare <- 3
+
+```
+
+
+```{r Subset, format, and crosswalk Oracle data from 2020}
 
 # Remove duplicates and select relevant columns from COVID data
 covid_census_subset <- unique(oracle_covid_census_df)
@@ -139,47 +166,175 @@ ip_census_crosswalk <- ip_census_crosswalk %>%
                                       "NEWBORN - USE OF THIS CODE NECESSITATES THE USE OF SPECIAL CODES IN THE SOURCE OF ADMISSIONá(DATA ELEMENT 13).", 
                                       ADMIT_TYPE_DESC_MSX))
 
-# test_df <- ip_census_crosswalk %>%
-#   group_by(CensusSite, ADMISSION_TYPE, ADMIT_TYPE_DESC_MSX) %>%
-#   summarize(Days = n())
-# 
-# test_df2 <- ip_census_crosswalk %>%
-#   group_by(CensusSite, ADMIT_SOURCE, ADMIT_SOURCE_DESC_MSX) %>%
-#   summarize(Days = n())
 
-# Order unit types for plotting
-unit_type_order <- c("ICU", "Med Surg", "COVID Surge", "Peds & Peds ICU", "L&D & Postpartum",
-                     "Nursery & NICU", "Psych & Rehab", "ED", "Psych ED", "Non-IP")
 
+# Order data based on unit type
 ip_census_crosswalk$UnitRollUp <- factor(ip_census_crosswalk$UnitRollUp, 
                                          levels = unit_type_order, ordered = TRUE)
 
 
 ```
 
+```{r Crosswalk FY2019 IP census with unit types}
 
-```{r Begin summarizing data based on site and unit type}
+ip_census_2019_df <- left_join(ip_census_2019_df, unit_mapping,
+                               by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
+
+ip_census_2019_df <- ip_census_2019_df %>%
+  mutate(CensusDate = as.Date(CensusDate),
+         CensusMonth = month(CensusDate),
+         CensusYear = year(CensusDate))
+
+
+```
+
+```{r Determine days per month}
+
+fy2019_days <- ip_census_2019_df %>%
+  group_by(CensusYear, CensusMonth, CensusDate) %>%
+  summarize(Days = 1)
+
+fy2019_days_per_month <- fy2019_days %>%
+  group_by(CensusYear, CensusMonth) %>%
+  summarize(DaysPerMonth = n())
+
+fy2020_days <- ip_census_crosswalk %>%
+  group_by(CensusYear, CensusMonth, CensusDate) %>%
+  summarize(Days = 1)
+
+fy2020_days_per_month <- fy2020_days %>%
+  group_by(CensusYear, CensusMonth) %>%
+  summarize(DaysPerMonth = n())
+
+days_per_month <- rbind(fy2019_days_per_month, fy2020_days_per_month)
+
+```
+
+
+```{r Begin summarizing FY2020 data based on site and unit type}
+
+# Summarize data by day
 census_site_unit_type <- ip_census_crosswalk %>%
   filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
   group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusDate, CensusYear, CensusMonth) %>%
   summarize(Census = sum(PATIENT_DAY)) %>%
   arrange(CensusSite, CensusDate, UnitRollUp, CensusDate)
 
+# Summarize data by month
+monthly_census_fy2020 <- ip_census_crosswalk %>%
+  filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
+  group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusYear, CensusMonth) %>%
+  summarize(Census = sum(PATIENT_DAY)) %>%
+  arrange(CensusSite, CensusYear, CensusMonth, UnitRollUp)
+
 ```
 
 
-```{r Plot census trend}
+```{r Summarize FY2019 data based on site and unit type}
+monthly_census_fy2019 <- ip_census_2019_df %>%
+  filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
+  group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusYear, CensusMonth) %>%
+  summarize(Census = sum(Census)) %>%
+  arrange(CensusSite, CensusYear, CensusMonth, UnitRollUp)
 
-sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE", "#79DCFF", "#8F075B", "#00668A")
 
-# Assume 4 week lookback period for now
-lookback_period <- 28
+```
 
-# Select maximum number of units per graph
-max_num_units <- 8
 
-# Determine start date for trending data based on lookback period
-start_date <- (Sys.Date() - 1) - (lookback_period)
+```{r Combine monthly census for FY2019 and 2020 YTD}
+monthly_census <- rbind(monthly_census_fy2019, monthly_census_fy2020)
+
+# Crosswalk with days per month
+monthly_census <- left_join(monthly_census, days_per_month, by = c("CensusYear" = "CensusYear",
+                                                                   "CensusMonth" = "CensusMonth"))
+
+monthly_census <- monthly_census %>%
+  mutate(ADC = Census / DaysPerMonth,
+         ValidMonth = ifelse(CensusSite == "MSB" & CensusYear == 2019 & CensusMonth <= 8, 0, 1),
+         ModADC = ifelse(ValidMonth == 1, ADC, NA),
+         ModDate = (as.Date(paste0(CensusMonth, "/1/", CensusYear), "%m/%d/%Y")))
+
+```
+
+
+```{r Create table for showing ADC deltas}
+current_month <- month(max(ip_census_crosswalk$CensusDate))
+
+include_months <- seq(current_month - (months_to_compare - 1), current_month, by = 1)
+
+census_compare <- monthly_census %>%
+  filter(CensusMonth %in% include_months &
+           UnitRollUp == "Med Surg" &
+           CensusSite == "MSW")
+
+census_compare_cast <- dcast(census_compare, CENSUS_DEPT ~ ModDate, value.var = "ModADC")
+
+# Rename CENSUS_DEPT column
+colnames(census_compare_cast)[1] <- "Unit"
+
+# Reformat columns with dates
+colnames(census_compare_cast)[2:ncol(census_compare_cast)] <- format(as.Date(colnames(census_compare_cast)[2:ncol(census_compare_cast)],
+                                                                                     "%Y-%m-%d"), "%b-%y")
+
+kable(census_compare_cast, format = "html", escape = FALSE, align = "c", digits = 1,
+      caption = "MSW Med Surg ADC Change - 2019 vs. 2020 for Last 3 Months") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
+  # row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
+  add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+
+```
+
+```{r Custom functions for creating tables with ADC delta for each unit type}
+
+# unit_adc_delta_kable <- function(site) {
+#   
+#   # Filter and subset data based on unit type and site
+#   census_compare_site <- monthly_census %>%
+#     filter(CensusMonth %in% include_months &
+#              CensusSite == site)
+#   
+#   unit_types <- unique(census_compare_site$UnitRollUp)
+#   
+#   for (i in 1:length(unit_types)) {
+# 
+#     census_compare_unit_type <- census_compare_site %>%
+#       filter(UnitRollUp == unit_types[i])
+# 
+#     census_compare_cast <- dcast(census_compare_unit_type, CENSUS_DEPT ~ ModDate, value.var = "ModADC")
+# 
+#     #Rename CENSUS_DEPT column
+#     colnames(census_compare_cast)[1] <- "Unit"
+# 
+#     # Reformat columns with dates
+#     colnames(census_compare_cast)[2:ncol(census_compare_cast)] <<- format(as.Date(colnames(census_compare_cast)[2:ncol(census_compare_cast)],
+#                                                                                      "%Y-%m-%d"), "%b-%y")
+# 
+#     # Create kable for site and unit type
+#     kable(census_compare_cast, format = "html", escape = FALSE, align = "c", digits = 1,
+#       caption = paste(site, unit_types[i], " ADC Change - 2019 vs. 2020")) %>%
+#       kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+#       column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+#       column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+#       column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+#       column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%
+#       add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3),
+#                        background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+# 
+#   }
+#   
+# }
+# 
+# unit_adc_delta_kable(site = "MSW")
+
+## Issues:
+## 1. some sites have had new units open in 2020 that didn't exist in 2019 --> solution: maybe cast data before loop?
+## 2. Want tables below each graph --> solution: incorporate into custom function for plotting once this is working?
+
 
 ```
 
