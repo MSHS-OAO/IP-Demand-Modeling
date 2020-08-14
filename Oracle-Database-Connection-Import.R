@@ -25,7 +25,7 @@ con <- dbConnect(odbc(),
 start1 <- proc.time()
 
 oracle_ip_census_df <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
-  filter(year(CENSUS_DATE) >= 2019) %>%
+  filter(year(CENSUS_DATE) == 2020) %>%
   collect()
 
 end1 <- proc.time() - start1
