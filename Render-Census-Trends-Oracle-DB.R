@@ -8,7 +8,6 @@ source(file = "Oracle-Database-Connection-Import.R")
 
 # Render markdown file for visualizing census trends
 rmarkdown::render(input = "Census-Trend-Visualizations.Rmd", 
-                  output_file = paste0(user_directory, 
-                  "//Census Trend Markdown Reporting//IP-Census-Trends ",
+                  output_file = paste0("Test",
                   Sys.Date()))
                   

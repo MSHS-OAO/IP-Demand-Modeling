@@ -45,7 +45,7 @@ library(kableExtra)
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
+knitr::opts_chunk$set(echo = FALSE, message = TRUE, warning = TRUE, fig.align = "center")
 ```
 
 
@@ -63,7 +63,10 @@ if (list.files("J://") == "Presidents") {
 ```{r Import 2019 census data}
 ip_census_2019_df <- read_xlsx(path = paste0(user_directory,
                                              "/Epic Census Trending/Epic FY2019 IP Census Summary 2020-08-14.xlsx"),
-                                             na = c("", "NA"))
+                               col_types = c("text", "date", "text", "text", 
+                                             "numeric", "numeric", "numeric", 
+                                             "text", "text", "text", "text", "numeric"), 
+                               na = c("", "NA"))
 
 ```
 
@@ -185,6 +188,8 @@ ip_census_2019_df <- ip_census_2019_df %>%
          CensusMonth = month(CensusDate),
          CensusYear = year(CensusDate))
 
+ip_census_2019_df$UnitRollUp <- factor(ip_census_2019_df$UnitRollUp,
+                                       levels = unit_type_order, ordered = TRUE)
 
 ```
 
@@ -262,78 +267,109 @@ current_month <- month(max(ip_census_crosswalk$CensusDate))
 
 include_months <- seq(current_month - (months_to_compare - 1), current_month, by = 1)
 
-census_compare <- monthly_census %>%
-  filter(CensusMonth %in% include_months &
-           UnitRollUp == "Med Surg" &
-           CensusSite == "MSW")
+# Filter data to only include months of interest
+census_monthly_comp <- monthly_census %>%
+  filter(CensusMonth %in% include_months)
 
-census_compare_cast <- dcast(census_compare, CENSUS_DEPT ~ ModDate, value.var = "ModADC")
+# Cast data
+census_monthly_comp_cast <- dcast(census_monthly_comp,
+                                  CensusSite + UnitRollUp + CENSUS_DEPT ~ ModDate,
+                                  value.var = "ModADC")
 
 # Rename CENSUS_DEPT column
-colnames(census_compare_cast)[1] <- "Unit"
+colnames(census_monthly_comp_cast)[3] <- "Unit"
 
 # Reformat columns with dates
-colnames(census_compare_cast)[2:ncol(census_compare_cast)] <- format(as.Date(colnames(census_compare_cast)[2:ncol(census_compare_cast)],
-                                                                                     "%Y-%m-%d"), "%b-%y")
+colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)] <- format(as.Date(colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)],
+                                                                                       "%Y-%m-%d"), "%b-%y")
+# # Subset data based on site and unit type and remove unused columns for kable
+# site <- "MSB"
+# unittype <- "Med Surg"
+# 
+# census_month_comp_kable <- census_monthly_comp_cast %>%
+#   filter(CensusSite == site & UnitRollUp == unittype)
+# 
+# # census_month_comp_kable$CensusSite <- NULL
+# # census_month_comp_kable$UnitRollUp <- NULL
+# 
+# 
+# kable(census_month_comp_kable, format = "html", escape = FALSE, align = "c", digits = 1,
+#       caption = "MSB COVID Surge ADC Change - 2019 vs. 2020 for Last 3 Months") %>%
+#   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+#   column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+#   column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+#   column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+#   column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
+#   # row_spec(row = 0, background = "#221f72", color = "white") %>%
+#   # row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
+#   add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
 
-kable(census_compare_cast, format = "html", escape = FALSE, align = "c", digits = 1,
-      caption = "MSW Med Surg ADC Change - 2019 vs. 2020 for Last 3 Months") %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
-  # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  # row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
-  add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+
+
+
+
 
 ```
 
 ```{r Custom functions for creating tables with ADC delta for each unit type}
 
-# unit_adc_delta_kable <- function(site) {
-#   
-#   # Filter and subset data based on unit type and site
-#   census_compare_site <- monthly_census %>%
-#     filter(CensusMonth %in% include_months &
-#              CensusSite == site)
-#   
-#   unit_types <- unique(census_compare_site$UnitRollUp)
-#   
-#   for (i in 1:length(unit_types)) {
-# 
-#     census_compare_unit_type <- census_compare_site %>%
-#       filter(UnitRollUp == unit_types[i])
-# 
-#     census_compare_cast <- dcast(census_compare_unit_type, CENSUS_DEPT ~ ModDate, value.var = "ModADC")
-# 
-#     #Rename CENSUS_DEPT column
-#     colnames(census_compare_cast)[1] <- "Unit"
-# 
-#     # Reformat columns with dates
-#     colnames(census_compare_cast)[2:ncol(census_compare_cast)] <<- format(as.Date(colnames(census_compare_cast)[2:ncol(census_compare_cast)],
-#                                                                                      "%Y-%m-%d"), "%b-%y")
-# 
-#     # Create kable for site and unit type
-#     kable(census_compare_cast, format = "html", escape = FALSE, align = "c", digits = 1,
-#       caption = paste(site, unit_types[i], " ADC Change - 2019 vs. 2020")) %>%
-#       kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-#       column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-#       column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-#       column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-#       column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%
-#       add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3),
-#                        background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
-# 
-#   }
-#   
-# }
-# 
-# unit_adc_delta_kable(site = "MSW")
+
+# Custom function for plotting census
+census_compare_kable <- function(data, table_caption) {
+  
+  site_unit_census_kable <-  kable(data[ , 3:ncol(data)], format = "html", escape = FALSE, align = "c", digits = 1,
+      caption = table_caption) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
+  add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+  
+  print(site_unit_census_kable)
+
+}
+
+
+# census_compare_kable(census_month_comp_kable)
 
 ## Issues:
-## 1. some sites have had new units open in 2020 that didn't exist in 2019 --> solution: maybe cast data before loop?
+## 1. some sites have had new units open in 2020 that didn't exist in 2019 --> solution: maybe cast data before loop? Resolved
 ## 2. Want tables below each graph --> solution: incorporate into custom function for plotting once this is working?
+
+
+```
+
+
+```{r Iterate through data to create kables for each site and unit type}
+site_unit_type_kable <- function(site) {
+  
+  # Subset census data based on site and start date
+  site_census_comp_kable <- census_monthly_comp_cast %>%
+  filter(CensusSite == site)
+  
+  
+  # Determine unit types for this site
+  unit_types <- unique(site_census_comp_kable$UnitRollUp)
+  
+  for(i in 1:length(unit_types)){
+    
+    # unit_type <<- unit_types[i]
+    
+    unit_type_census_comp_kable <- site_census_comp_kable %>%
+      filter(UnitRollUp == unit_types[i])
+    
+    kable_title <- paste(site, unit_types[i], " ADC Change - 2019 vs. 2020 for Last 3 Months")
+    
+    census_compare_kable(data = unit_type_census_comp_kable, table_caption = kable_title)
+    
+    
+    
+  }
+}
+
+# site_unit_type_kable(site = "MSW")
+
 
 
 ```
@@ -464,3 +500,4 @@ site_unit_type_plotting(site = "MSM")
 site_unit_type_plotting(site = "MSW")
 
 ```
+
