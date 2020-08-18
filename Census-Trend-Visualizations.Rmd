@@ -45,7 +45,7 @@ library(kableExtra)
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = TRUE, warning = TRUE, fig.align = "center")
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
 ```
 
 
@@ -225,6 +225,12 @@ census_site_unit_type <- ip_census_crosswalk %>%
   summarize(Census = sum(PATIENT_DAY)) %>%
   arrange(CensusSite, CensusDate, UnitRollUp, CensusDate)
 
+# Summarize adult census (ICU, Med Surg, COVID Surge)
+site_adult_census <- census_site_unit_type %>%
+  filter(UnitType == "Adult ICU" | UnitType == "Adult MS" | UnitType == "COVID Surge") %>%
+  group_by(CensusSite, CensusDate, CensusYear, CensusMonth) %>%
+  summarize(Census = sum(Census))
+
 # Summarize data by month
 monthly_census_fy2020 <- ip_census_crosswalk %>%
   filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
@@ -368,9 +374,35 @@ site_unit_type_kable <- function(site) {
   }
 }
 
-# site_unit_type_kable(site = "MSW")
+
+```
 
 
+```{r Custom function for plotting site total adult census, results = 'asis'}
+
+site_census_summary_plot <- function(site) {
+  site_adult_census_plot_df <- site_adult_census %>%
+    filter(CensusSite == site & CensusDate > start_date)
+  
+  ggplot(data = site_adult_census_plot_df, 
+       aes(x = CensusDate, y = Census)) +
+    geom_line(color = sinai_colors[1]) +
+    geom_point(color = sinai_colors[1]) +
+    labs(title = paste(site, "Total Adult Census (ICU, Med Surg, COVID Surge)"), x = "Date", y = "Census") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 14, hjust = 0.5),
+          legend.position = "bottom",
+          legend.box = "horizontal",
+          legend.title = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
+          axis.text.y = element_text(size = 10),
+          panel.grid.major = element_line(color = "lightgrey"),
+          panel.grid.minor = element_line(color = "lightgrey")) +
+    scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
+                 expand = c(0, 1))
+  
+}
 
 ```
 
@@ -378,7 +410,7 @@ site_unit_type_kable <- function(site) {
 ```{r Custom functions for plotting data for a given site, results = 'asis'}
 
 # Custom function for plotting census
-census_plot <- function(data, title) {
+unit_type_census_plot <- function(data, title) {
   
   num_units <- length(unique(data$CENSUS_DEPT))
   
@@ -400,7 +432,7 @@ census_plot <- function(data, title) {
     scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(data$CENSUS_DEPT))]) +
     # scale_shape(name = "Unit") +
     scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
-                 expand = c(0, 1))
+                 expand = c(0, 1), limits = c(start_date + 1, Sys.Date() - 1))
   
   print(census_trend_plot)
 }
@@ -412,9 +444,16 @@ census_plot <- function(data, title) {
 
 site_unit_type_plotting <- function(site) {
   
+  plot(site_census_summary_plot(site = site))
+
+  
   # Subset census data based on site and start date
   site_df <- census_site_unit_type %>%
     filter(CensusSite == site & CensusDate > start_date)
+  
+  # Subset census data based on site and start date
+  site_census_comp_kable <- census_monthly_comp_cast %>%
+    filter(CensusSite == site)
   
   # Determine unit types for this site
   unit_types <- unique(site_df$UnitRollUp)
@@ -430,39 +469,45 @@ site_unit_type_plotting <- function(site) {
     # Determine if the number of units within this unit type exceeds the 
     # maximum number of units to plot on a given graph
     num_units <- length(unique(plot_df$CENSUS_DEPT))
-    
+
     
     if(num_units <= max_num_units) {
-      
-      # If the number of units does not exceed the maximum number of units per graph, 
+
+      # If the number of units does not exceed the maximum number of units per graph,
       # specify the title and plot the data as is
       plot_title <- paste0(site, " ", unit_types[i], " Census by Unit")
-      
-      census_plot(data = plot_df, title = plot_title)
-      
+
+      unit_type_census_plot(data = plot_df, title = plot_title)
+
     } else {
-      
-      # If the number of units exceeds the maximum number of units per graph, establish groupings 
+
+      # If the number of units exceeds the maximum number of units per graph, establish groupings
       # based on the total number of units and the maximum number of units per graph
       unit_numbers <- data.frame("Unit" = unique(plot_df$CENSUS_DEPT), stringsAsFactors = FALSE)
       unit_numbers <- unit_numbers %>%
         mutate(Number = row_number(),
                Grouping = ceiling(Number / max_num_units))
-      
+
       # Add text to plot title to include number of graphs for this unit type
       plot_df <- left_join(plot_df, unit_numbers[ , c("Unit", "Grouping")], by = c("CENSUS_DEPT" = "Unit"))
-      
+
       for(j in 1:max(plot_df$Grouping)) {
         grouping_df <- plot_df %>%
           filter(Grouping == j)
-        
+
         plot_title <- paste0(site, " ", unit_types[i], " Census by Unit (", j, " of ", max(plot_df$Grouping), ")")
-        
-        census_plot(data = grouping_df, plot_title)
+
+        unit_type_census_plot(data = grouping_df, plot_title)
       }
-      
-      
+
     }
+
+    unit_type_census_comp_kable <- site_census_comp_kable %>%
+      filter(UnitRollUp == unit_types[i])
+    
+    kable_title <- paste(site, unit_types[i], " ADC Change - 2019 vs. 2020 for Last 3 Months")
+    
+    census_compare_kable(data = unit_type_census_comp_kable, table_caption = kable_title)
     
   }
   
@@ -473,31 +518,37 @@ site_unit_type_plotting <- function(site) {
 
 ## MSH Census
 ```{r Plot MSH census trends, results = 'asis'}
+# site_census_summary_plot(site = "MSH")
 site_unit_type_plotting(site = "MSH")
+# site_unit_type_kable(site = "MSH")
 
 ```
 
 ## MSQ Census
 ```{r Plot MSQ census trends, results = 'asis'}
 site_unit_type_plotting(site = "MSQ")
+# site_unit_type_kable(site = "MSQ")
 
 ```
 
 ## MSB Census
 ```{r Plot MSB census trends, results = 'asis'}
 site_unit_type_plotting(site = "MSB")
+# site_unit_type_kable(site = "MSB")
 
 ```
 
 ## MSM Census
 ```{r Plot MSM census trends, results = 'asis'}
 site_unit_type_plotting(site = "MSM")
+# site_unit_type_kable(site = "MSM")
 
 ```
 
 ## MSW Census
 ```{r Plot MSW census trends, results = 'asis'}
 site_unit_type_plotting(site = "MSW")
+# site_unit_type_kable(site = "MSW")
 
 ```
 
