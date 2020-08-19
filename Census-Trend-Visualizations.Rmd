@@ -1,5 +1,5 @@
 ---
-title: "Census-Trending-Dashboard"
+title: "MSHS Census Trends Dashboard"
 author: "HSO"
 output: 
   html_document:
@@ -9,7 +9,8 @@ output:
 
 ---
   
-### Report created on `r format(Sys.Date(), "%m/%d/%y")`
+#### Report created on `r format(Sys.Date(), "%m/%d/%y")`
+#### Census data available through `r format(Sys.Date() - 1, "%m/%d/%y")`
 ```{r Install and load packages, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
 # install.packages("dplyr")
 # install.packages("lubridate")
@@ -288,6 +289,23 @@ colnames(census_monthly_comp_cast)[3] <- "Unit"
 # Reformat column names with dates
 colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)] <- format(as.Date(colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)],
                                                                                        "%Y-%m-%d"), "%b-%y")
+# Determine percent difference in census for each unit and each month
+data_type <- NULL
+
+for (i in 1:ncol(census_monthly_comp_cast)) {
+  data_type[i] <- class(census_monthly_comp_cast[ , i])
+  
+}
+
+start_adc_col <- which(data_type == "numeric")[1]
+
+census_monthly_comp_cast <- cbind(census_monthly_comp_cast, 
+                                  lapply(start_adc_col:(ncol(census_monthly_comp_cast) - months_to_compare), 
+                                         function(x) 
+                                           setNames(((census_monthly_comp_cast[x + months_to_compare] -
+                                                        census_monthly_comp_cast[x]) / census_monthly_comp_cast[x] * 100), 
+                                                    substr(colnames(census_monthly_comp_cast)[x],
+                                                                  start = 1, stop = 3))))
 
 ```
 
@@ -362,12 +380,14 @@ census_compare_kable <- function(data, table_caption) {
   
   site_unit_census_kable <-  kable(data[ , 3:ncol(data)], format = "html", escape = FALSE, align = "c", digits = 1,
       caption = table_caption) %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
-  add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+    kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+    column_spec(column = c(1, 4, 7), border_right = "thin solid lightgray") %>%
+    column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+    column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+    column_spec(column = c(8:10), background = sinai_colors[4], color = "white", include_thead = TRUE) %>%
+    column_spec(column = c(2:10), background = "inherit", color = "inherit") %>%  
+    add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3, "Percent Difference" = 3), 
+                     background = c("", sinai_colors[1], sinai_colors[2], sinai_colors[4]), color = "white", line = FALSE)
   
   print(site_unit_census_kable)
 
@@ -469,6 +489,7 @@ site_census_visual_agg(site = "MSQ")
 
 
 ## MSB
+*MSB IP Epic go-live occurred in September 2019. Year-to-year comparisons not available prior to this time period.*
 ```{r Plot MSB census trends, results = 'asis'}
 site_census_visual_agg(site = "MSB")
 
