@@ -4,13 +4,13 @@ author: "HSO"
 output: 
   html_document:
     toc: true
-    toc_depth: 2
+    toc_depth: 3
     toc_float: true
 
 ---
   
 ### Report created on `r format(Sys.Date(), "%m/%d/%y")`
-```{r Install and load packages}
+```{r Install and load packages, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
 # install.packages("dplyr")
 # install.packages("lubridate")
 # install.packages("readxl")
@@ -44,14 +44,12 @@ library(kableExtra)
 ```
 
 
-```{r setup, include=FALSE}
+```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
 ```
 
 
 ```{r Determine drive mapping}
-# rm(list = ls())
-
 if (list.files("J://") == "Presidents") {
   user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
 } else {
@@ -107,7 +105,7 @@ months_to_compare <- 3
 ```
 
 
-```{r Subset, format, and crosswalk Oracle data from 2020}
+```{r Subset, format, and crosswalk Oracle census and COVID data from 2020}
 
 # Remove duplicates and select relevant columns from COVID data
 covid_census_subset <- unique(oracle_covid_census_df)
@@ -193,7 +191,20 @@ ip_census_2019_df$UnitRollUp <- factor(ip_census_2019_df$UnitRollUp,
 
 ```
 
-```{r Determine days per month}
+
+```{r Summarize FY2019 data based on site and unit type}
+
+# Summarize total monthly census for each unit organized by site and unit type/roll up; this will be used to compare 2019 to 2020 ADC
+monthly_census_fy2019 <- ip_census_2019_df %>%
+  filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
+  group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusYear, CensusMonth) %>%
+  summarize(Census = sum(Census)) %>%
+  arrange(CensusSite, CensusYear, CensusMonth, UnitRollUp)
+
+
+```
+
+```{r Determine days per month for 2019 and 2020}
 
 fy2019_days <- ip_census_2019_df %>%
   group_by(CensusYear, CensusMonth, CensusDate) %>%
@@ -216,38 +227,27 @@ days_per_month <- rbind(fy2019_days_per_month, fy2020_days_per_month)
 ```
 
 
-```{r Begin summarizing FY2020 data based on site and unit type}
+```{r Summarize FY2020 data based on site and unit type}
 
-# Summarize data by day
+# Summarize daily census for each unit organized grouped by site and unit type/roll up
 census_site_unit_type <- ip_census_crosswalk %>%
   filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
   group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusDate, CensusYear, CensusMonth) %>%
   summarize(Census = sum(PATIENT_DAY)) %>%
   arrange(CensusSite, CensusDate, UnitRollUp, CensusDate)
 
-# Summarize adult census (ICU, Med Surg, COVID Surge)
+# Summarize daily adult census (ICU, Med Surg, COVID Surge) for each site
 site_adult_census <- census_site_unit_type %>%
   filter(UnitType == "Adult ICU" | UnitType == "Adult MS" | UnitType == "COVID Surge") %>%
   group_by(CensusSite, CensusDate, CensusYear, CensusMonth) %>%
   summarize(Census = sum(Census))
 
-# Summarize data by month
+# Summarize total monthly census for each unit organized by site and unit type/roll up; this will be used to compare 2019 to 2020 ADC
 monthly_census_fy2020 <- ip_census_crosswalk %>%
   filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
   group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusYear, CensusMonth) %>%
   summarize(Census = sum(PATIENT_DAY)) %>%
   arrange(CensusSite, CensusYear, CensusMonth, UnitRollUp)
-
-```
-
-
-```{r Summarize FY2019 data based on site and unit type}
-monthly_census_fy2019 <- ip_census_2019_df %>%
-  filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
-  group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusYear, CensusMonth) %>%
-  summarize(Census = sum(Census)) %>%
-  arrange(CensusSite, CensusYear, CensusMonth, UnitRollUp)
-
 
 ```
 
@@ -277,7 +277,7 @@ include_months <- seq(current_month - (months_to_compare - 1), current_month, by
 census_monthly_comp <- monthly_census %>%
   filter(CensusMonth %in% include_months)
 
-# Cast data
+# Cast data to view 2019 and 2020 next to each other
 census_monthly_comp_cast <- dcast(census_monthly_comp,
                                   CensusSite + UnitRollUp + CENSUS_DEPT ~ ModDate,
                                   value.var = "ModADC")
@@ -285,108 +285,23 @@ census_monthly_comp_cast <- dcast(census_monthly_comp,
 # Rename CENSUS_DEPT column
 colnames(census_monthly_comp_cast)[3] <- "Unit"
 
-# Reformat columns with dates
+# Reformat column names with dates
 colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)] <- format(as.Date(colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)],
                                                                                        "%Y-%m-%d"), "%b-%y")
-# # Subset data based on site and unit type and remove unused columns for kable
-# site <- "MSB"
-# unittype <- "Med Surg"
-# 
-# census_month_comp_kable <- census_monthly_comp_cast %>%
-#   filter(CensusSite == site & UnitRollUp == unittype)
-# 
-# # census_month_comp_kable$CensusSite <- NULL
-# # census_month_comp_kable$UnitRollUp <- NULL
-# 
-# 
-# kable(census_month_comp_kable, format = "html", escape = FALSE, align = "c", digits = 1,
-#       caption = "MSB COVID Surge ADC Change - 2019 vs. 2020 for Last 3 Months") %>%
-#   kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-#   column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-#   column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-#   column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-#   column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
-#   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-#   # row_spec(row = nrow(ip_icu_scenarios_site), background = "lightgrey", bold = T) %>%
-#   add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
-
-
-
-
-
-
-```
-
-```{r Custom functions for creating tables with ADC delta for each unit type}
-
-
-# Custom function for plotting census
-census_compare_kable <- function(data, table_caption) {
-  
-  site_unit_census_kable <-  kable(data[ , 3:ncol(data)], format = "html", escape = FALSE, align = "c", digits = 1,
-      caption = table_caption) %>%
-  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
-  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
-  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
-  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
-  add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
-  
-  print(site_unit_census_kable)
-
-}
-
-
-# census_compare_kable(census_month_comp_kable)
-
-## Issues:
-## 1. some sites have had new units open in 2020 that didn't exist in 2019 --> solution: maybe cast data before loop? Resolved
-## 2. Want tables below each graph --> solution: incorporate into custom function for plotting once this is working?
-
-
-```
-
-
-```{r Iterate through data to create kables for each site and unit type}
-site_unit_type_kable <- function(site) {
-  
-  # Subset census data based on site and start date
-  site_census_comp_kable <- census_monthly_comp_cast %>%
-  filter(CensusSite == site)
-  
-  
-  # Determine unit types for this site
-  unit_types <- unique(site_census_comp_kable$UnitRollUp)
-  
-  for(i in 1:length(unit_types)){
-    
-    # unit_type <<- unit_types[i]
-    
-    unit_type_census_comp_kable <- site_census_comp_kable %>%
-      filter(UnitRollUp == unit_types[i])
-    
-    kable_title <- paste(site, unit_types[i], " ADC Change - 2019 vs. 2020 for Last 3 Months")
-    
-    census_compare_kable(data = unit_type_census_comp_kable, table_caption = kable_title)
-    
-    
-    
-  }
-}
-
 
 ```
 
 
 ```{r Custom function for plotting site total adult census, results = 'asis'}
 
+# Custom function for plotting total adult census for a given site
 site_census_summary_plot <- function(site) {
   site_adult_census_plot_df <- site_adult_census %>%
     filter(CensusSite == site & CensusDate > start_date)
   
   ggplot(data = site_adult_census_plot_df, 
        aes(x = CensusDate, y = Census)) +
-    geom_line(color = sinai_colors[1]) +
+    geom_line(color = sinai_colors[1], group = 1) +
     geom_point(color = sinai_colors[1]) +
     labs(title = paste(site, "Total Adult Census (ICU, Med Surg, COVID Surge)"), x = "Date", y = "Census") +
     theme_bw() +
@@ -407,15 +322,15 @@ site_census_summary_plot <- function(site) {
 ```
 
 
-```{r Custom functions for plotting data for a given site, results = 'asis'}
+```{r Custom function for plotting unit level census data for a given site, results = 'asis'}
 
-# Custom function for plotting census
+# Custom function for plotting unit level census census
 unit_type_census_plot <- function(data, title) {
   
   num_units <- length(unique(data$CENSUS_DEPT))
   
   census_trend_plot <- ggplot(data = data,
-                              aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) + #, shape = CENSUS_DEPT)) +
+                              aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) +
     geom_line() +
     geom_point() +
     labs(title = title, x = "Date", y = "Census") +
@@ -430,23 +345,45 @@ unit_type_census_plot <- function(data, title) {
           panel.grid.major = element_line(color = "lightgrey"),
           panel.grid.minor = element_line(color = "lightgrey")) +
     scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(data$CENSUS_DEPT))]) +
-    # scale_shape(name = "Unit") +
     scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
                  expand = c(0, 1), limits = c(start_date + 1, Sys.Date() - 1))
   
   print(census_trend_plot)
+
 }
 
 ```
 
+
+```{r Custom function for creating tables with ADC delta for each unit type, results = 'asis'}
+
+# Custom function for 2019 and 2020 monthly census comparison
+census_compare_kable <- function(data, table_caption) {
+  
+  site_unit_census_kable <-  kable(data[ , 3:ncol(data)], format = "html", escape = FALSE, align = "c", digits = 1,
+      caption = table_caption) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 4), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:4), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(5:7), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
+  add_header_above(c(" " = 1, "2019 Monthly ADC" = 3, "2020 Monthly ADC" = 3), background = c("", sinai_colors[1], sinai_colors[2]), color = "white", line = FALSE)
+  
+  print(site_unit_census_kable)
+
+}
+
+```
+
+
 ```{r Custom function for iterating through data for a given site, results = 'asis'}
 # Custom function to iterate through a site's unit types
 
-site_unit_type_plotting <- function(site) {
+site_census_visual_agg <- function(site) {
   
+  cat("<h3>Total Census</h3>")
   plot(site_census_summary_plot(site = site))
 
-  
   # Subset census data based on site and start date
   site_df <- census_site_unit_type %>%
     filter(CensusSite == site & CensusDate > start_date)
@@ -458,13 +395,13 @@ site_unit_type_plotting <- function(site) {
   # Determine unit types for this site
   unit_types <- unique(site_df$UnitRollUp)
   
-  for(i in 1:length(unit_types)){
+  for(i in unit_types){
     
-    cat("<h3><b>", as.character(unit_types[i]), "</b></h3>")
+    cat("<h3>", i, "</h3>")
     
     # Subset data to plot based on unit type roll up at this site
     plot_df <- site_df %>%
-      filter(UnitRollUp == unit_types[i])
+      filter(UnitRollUp == i)
     
     # Determine if the number of units within this unit type exceeds the 
     # maximum number of units to plot on a given graph
@@ -475,7 +412,7 @@ site_unit_type_plotting <- function(site) {
 
       # If the number of units does not exceed the maximum number of units per graph,
       # specify the title and plot the data as is
-      plot_title <- paste0(site, " ", unit_types[i], " Census by Unit")
+      plot_title <- paste0(site, " ", i, " Census by Unit")
 
       unit_type_census_plot(data = plot_df, title = plot_title)
 
@@ -495,7 +432,7 @@ site_unit_type_plotting <- function(site) {
         grouping_df <- plot_df %>%
           filter(Grouping == j)
 
-        plot_title <- paste0(site, " ", unit_types[i], " Census by Unit (", j, " of ", max(plot_df$Grouping), ")")
+        plot_title <- paste0(site, " ", i, " Census by Unit (", j, " of ", max(plot_df$Grouping), ")")
 
         unit_type_census_plot(data = grouping_df, plot_title)
       }
@@ -503,9 +440,9 @@ site_unit_type_plotting <- function(site) {
     }
 
     unit_type_census_comp_kable <- site_census_comp_kable %>%
-      filter(UnitRollUp == unit_types[i])
+      filter(UnitRollUp == i)
     
-    kable_title <- paste(site, unit_types[i], " ADC Change - 2019 vs. 2020 for Last 3 Months")
+    kable_title <- paste(site, i, " ADC: 2019 vs. 2020 for Last 3 Months")
     
     census_compare_kable(data = unit_type_census_comp_kable, table_caption = kable_title)
     
@@ -516,39 +453,38 @@ site_unit_type_plotting <- function(site) {
 
 ```
 
-## MSH Census
+
+## MSH
 ```{r Plot MSH census trends, results = 'asis'}
-# site_census_summary_plot(site = "MSH")
-site_unit_type_plotting(site = "MSH")
-# site_unit_type_kable(site = "MSH")
+site_census_visual_agg(site = "MSH")
 
 ```
 
-## MSQ Census
+
+## MSQ
 ```{r Plot MSQ census trends, results = 'asis'}
-site_unit_type_plotting(site = "MSQ")
-# site_unit_type_kable(site = "MSQ")
+site_census_visual_agg(site = "MSQ")
 
 ```
 
-## MSB Census
+
+## MSB
 ```{r Plot MSB census trends, results = 'asis'}
-site_unit_type_plotting(site = "MSB")
-# site_unit_type_kable(site = "MSB")
+site_census_visual_agg(site = "MSB")
 
 ```
 
-## MSM Census
+
+## MSM
 ```{r Plot MSM census trends, results = 'asis'}
-site_unit_type_plotting(site = "MSM")
-# site_unit_type_kable(site = "MSM")
+site_census_visual_agg(site = "MSM")
 
 ```
 
-## MSW Census
+
+## MSW
 ```{r Plot MSW census trends, results = 'asis'}
-site_unit_type_plotting(site = "MSW")
-# site_unit_type_kable(site = "MSW")
+site_census_visual_agg(site = "MSW")
 
 ```
 
