@@ -103,6 +103,9 @@ start_date <- (Sys.Date() - 1) - (lookback_period)
 # Select the number of months of ADC to compare data from 2019 to 2020
 months_to_compare <- 3
 
+# MSB Epic go-live date
+msb_epic_start <- as.Date("09/08/2019", format = "%m/%d/%Y")
+
 ```
 
 
@@ -190,6 +193,10 @@ ip_census_2019_df <- ip_census_2019_df %>%
 ip_census_2019_df$UnitRollUp <- factor(ip_census_2019_df$UnitRollUp,
                                        levels = unit_type_order, ordered = TRUE)
 
+# Remove unknown sites and MSB data from before Epic go-live
+ip_census_2019_df <- ip_census_2019_df %>%
+  filter(IPUnit & !is.na(CensusSite) & !(CensusSite == "MSB" & CensusDate < msb_epic_start))
+
 ```
 
 
@@ -197,7 +204,6 @@ ip_census_2019_df$UnitRollUp <- factor(ip_census_2019_df$UnitRollUp,
 
 # Summarize total monthly census for each unit organized by site and unit type/roll up; this will be used to compare 2019 to 2020 ADC
 monthly_census_fy2019 <- ip_census_2019_df %>%
-  filter(IPUnit & CensusSite != "MSBI" & !is.na(CensusSite)) %>%
   group_by(CensusSite, UnitRollUp, UnitType, CENSUS_DEPT, CensusYear, CensusMonth) %>%
   summarize(Census = sum(Census)) %>%
   arrange(CensusSite, CensusYear, CensusMonth, UnitRollUp)
@@ -208,19 +214,20 @@ monthly_census_fy2019 <- ip_census_2019_df %>%
 ```{r Determine days per month for 2019 and 2020}
 
 fy2019_days <- ip_census_2019_df %>%
-  group_by(CensusYear, CensusMonth, CensusDate) %>%
+  group_by(CensusSite, CensusYear, CensusMonth, CensusDate) %>%
   summarize(Days = 1)
 
 fy2019_days_per_month <- fy2019_days %>%
-  group_by(CensusYear, CensusMonth) %>%
+  group_by(CensusSite, CensusYear, CensusMonth) %>%
   summarize(DaysPerMonth = n())
 
 fy2020_days <- ip_census_crosswalk %>%
-  group_by(CensusYear, CensusMonth, CensusDate) %>%
+  filter(IPUnit & !is.na(CensusSite)) %>%
+  group_by(CensusSite, CensusYear, CensusMonth, CensusDate) %>%
   summarize(Days = 1)
 
 fy2020_days_per_month <- fy2020_days %>%
-  group_by(CensusYear, CensusMonth) %>%
+  group_by(CensusSite, CensusYear, CensusMonth) %>%
   summarize(DaysPerMonth = n())
 
 days_per_month <- rbind(fy2019_days_per_month, fy2020_days_per_month)
@@ -257,7 +264,8 @@ monthly_census_fy2020 <- ip_census_crosswalk %>%
 monthly_census <- rbind(monthly_census_fy2019, monthly_census_fy2020)
 
 # Crosswalk with days per month
-monthly_census <- left_join(monthly_census, days_per_month, by = c("CensusYear" = "CensusYear",
+monthly_census <- left_join(monthly_census, days_per_month, by = c("CensusSite" = "CensusSite", 
+                                                                   "CensusYear" = "CensusYear",
                                                                    "CensusMonth" = "CensusMonth"))
 
 monthly_census <- monthly_census %>%
@@ -290,14 +298,9 @@ colnames(census_monthly_comp_cast)[3] <- "Unit"
 colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)] <- format(as.Date(colnames(census_monthly_comp_cast)[4:ncol(census_monthly_comp_cast)],
                                                                                        "%Y-%m-%d"), "%b-%y")
 # Determine percent difference in census for each unit and each month
-data_type <- NULL
+data_type <- lapply(census_monthly_comp_cast, class)
 
-for (i in 1:ncol(census_monthly_comp_cast)) {
-  data_type[i] <- class(census_monthly_comp_cast[ , i])
-  
-}
-
-start_adc_col <- which(data_type == "numeric")[1]
+start_adc_col <- min(which(data_type == "numeric"))
 
 census_monthly_comp_cast <- cbind(census_monthly_comp_cast, 
                                   lapply(start_adc_col:(ncol(census_monthly_comp_cast) - months_to_compare), 
@@ -489,7 +492,7 @@ site_census_visual_agg(site = "MSQ")
 
 
 ## MSB
-*MSB IP Epic go-live occurred in September 2019. Year-to-year comparisons not available prior to this time period.*
+*MSB IP Epic go-live occurred on 09/08/2019. ADC reflects this start date and year-to-year comparisons prior to September 2019 are not available.*
 ```{r Plot MSB census trends, results = 'asis'}
 site_census_visual_agg(site = "MSB")
 
