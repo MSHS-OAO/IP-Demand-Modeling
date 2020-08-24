@@ -111,15 +111,15 @@ msb_epic_start <- as.Date("09/08/2019", format = "%m/%d/%Y")
 
 ```{r Subset, format, and crosswalk Oracle census and COVID data from 2020}
 
-# Remove duplicates and select relevant columns from COVID data
-covid_census_subset <- unique(oracle_covid_census_df)
-
-covid_census_subset <- covid_census_subset %>%
-  select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE, 
-         CENSUS_DEPT, CENSUS_ROOM, CENSUS_BED,
-         ACCOMMODATION_DESC,
-         PAT_DAY_INF_STATUS) %>%
-  arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
+# # Remove duplicates and select relevant columns from COVID data
+# covid_census_subset <- unique(oracle_covid_census_df)
+# 
+# covid_census_subset <- covid_census_subset %>%
+#   select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE, 
+#          CENSUS_DEPT, CENSUS_ROOM, CENSUS_BED,
+#          ACCOMMODATION_DESC,
+#          PAT_DAY_INF_STATUS) %>%
+#   arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
 
 # Remove duplicates from IP census data
 ip_census_subset <- unique(oracle_ip_census_df)
@@ -127,28 +127,31 @@ ip_census_subset <- unique(oracle_ip_census_df)
 ip_census_subset <- ip_census_subset %>%
   arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
 
-
-# Crosswalk IP census with COVID data to determine daily COVID volume
-ip_census_crosswalk <- left_join(ip_census_subset, covid_census_subset,
-                                 by = c("CSN" = "CSN", 
-                                        "MRN" = "MRN",
-                                        "EXTERNAL_ENC_ID" = "EXTERNAL_ENC_ID",
-                                        "CENSUS_DATE" = "CENSUS_DATE", 
-                                        "CENSUS_DEPT" = "CENSUS_DEPT",
-                                        "CENSUS_ROOM" = "CENSUS_ROOM",
-                                        "ACCOMMODATION_DESC" = "ACCOMMODATION_DESC",
-                                        "CENSUS_BED" = "CENSUS_BED"))
-
-# Format crosswalked data
-ip_census_crosswalk <- ip_census_crosswalk %>%
+# Format census date and year
+ip_census_subset <- ip_census_subset %>%
   mutate(CensusDate = as.Date(CENSUS_DATE),
          CensusYear = year(CensusDate),
-         CensusMonth = month(CensusDate),
-         AdjPatInfStat = ifelse(PAT_DAY_INF_STATUS %in% c("COVID-19", "PUI - COVID", "SUSC COVID"),
-                                PAT_DAY_INF_STATUS, NA))
+         CensusMonth = month(CensusDate))
+  
+# # Crosswalk IP census with COVID data to determine daily COVID volume
+# ip_census_crosswalk <- left_join(ip_census_subset, covid_census_subset,
+#                                  by = c("CSN" = "CSN", 
+#                                         "MRN" = "MRN",
+#                                         "EXTERNAL_ENC_ID" = "EXTERNAL_ENC_ID",
+#                                         "CENSUS_DATE" = "CENSUS_DATE", 
+#                                         "CENSUS_DEPT" = "CENSUS_DEPT",
+#                                         "CENSUS_ROOM" = "CENSUS_ROOM",
+#                                         "ACCOMMODATION_DESC" = "ACCOMMODATION_DESC",
+#                                         "CENSUS_BED" = "CENSUS_BED"))
+
+# # Format crosswalked data patient infection status
+# ip_census_crosswalk <- ip_census_crosswalk %>%
+#   mutate(AdjPatInfStat = ifelse(PAT_DAY_INF_STATUS %in% c("COVID-19", "PUI - COVID", "SUSC COVID"),
+#                        PAT_DAY_INF_STATUS, NA))
+
 
 # Crosswalk census data with unit mappings
-ip_census_crosswalk <- left_join(ip_census_crosswalk, unit_mapping,
+ip_census_crosswalk <- left_join(ip_census_subset, unit_mapping,
                                  by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
 
 # Crosswalk census data with admit source
