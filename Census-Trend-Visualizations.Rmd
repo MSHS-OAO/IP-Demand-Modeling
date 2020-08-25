@@ -111,15 +111,15 @@ msb_epic_start <- as.Date("09/08/2019", format = "%m/%d/%Y")
 
 ```{r Subset, format, and crosswalk Oracle census and COVID data from 2020}
 
-# # Remove duplicates and select relevant columns from COVID data
-# covid_census_subset <- unique(oracle_covid_census_df)
-# 
-# covid_census_subset <- covid_census_subset %>%
-#   select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE, 
-#          CENSUS_DEPT, CENSUS_ROOM, CENSUS_BED,
-#          ACCOMMODATION_DESC,
-#          PAT_DAY_INF_STATUS) %>%
-#   arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
+# Remove duplicates and select relevant columns from COVID data
+covid_census_subset <- unique(oracle_covid_census_df)
+
+covid_census_subset <- covid_census_subset %>%
+  select(CSN, MRN, EXTERNAL_ENC_ID, CENSUS_DATE,
+         CENSUS_DEPT, CENSUS_ROOM, CENSUS_BED,
+         ACCOMMODATION_DESC,
+         PAT_DAY_INF_STATUS) %>%
+  arrange(CSN, CENSUS_DATE, CENSUS_DEPT)
 
 # Remove duplicates from IP census data
 ip_census_subset <- unique(oracle_ip_census_df)
@@ -133,25 +133,25 @@ ip_census_subset <- ip_census_subset %>%
          CensusYear = year(CensusDate),
          CensusMonth = month(CensusDate))
   
-# # Crosswalk IP census with COVID data to determine daily COVID volume
-# ip_census_crosswalk <- left_join(ip_census_subset, covid_census_subset,
-#                                  by = c("CSN" = "CSN", 
-#                                         "MRN" = "MRN",
-#                                         "EXTERNAL_ENC_ID" = "EXTERNAL_ENC_ID",
-#                                         "CENSUS_DATE" = "CENSUS_DATE", 
-#                                         "CENSUS_DEPT" = "CENSUS_DEPT",
-#                                         "CENSUS_ROOM" = "CENSUS_ROOM",
-#                                         "ACCOMMODATION_DESC" = "ACCOMMODATION_DESC",
-#                                         "CENSUS_BED" = "CENSUS_BED"))
+# Crosswalk IP census with COVID data to determine daily COVID volume
+ip_census_crosswalk <- left_join(ip_census_subset, covid_census_subset,
+                                 by = c("CSN" = "CSN",
+                                        "MRN" = "MRN",
+                                        "EXTERNAL_ENC_ID" = "EXTERNAL_ENC_ID",
+                                        "CENSUS_DATE" = "CENSUS_DATE",
+                                        "CENSUS_DEPT" = "CENSUS_DEPT",
+                                        "CENSUS_ROOM" = "CENSUS_ROOM",
+                                        "ACCOMMODATION_DESC" = "ACCOMMODATION_DESC",
+                                        "CENSUS_BED" = "CENSUS_BED"))
 
-# # Format crosswalked data patient infection status
-# ip_census_crosswalk <- ip_census_crosswalk %>%
-#   mutate(AdjPatInfStat = ifelse(PAT_DAY_INF_STATUS %in% c("COVID-19", "PUI - COVID", "SUSC COVID"),
-#                        PAT_DAY_INF_STATUS, NA))
+# Format crosswalked data patient infection status
+ip_census_crosswalk <- ip_census_crosswalk %>%
+  mutate(AdjPatInfStat = ifelse(PAT_DAY_INF_STATUS %in% c("COVID-19", "PUI - COVID", "SUSC COVID"),
+                       PAT_DAY_INF_STATUS, NA))
 
 
 # Crosswalk census data with unit mappings
-ip_census_crosswalk <- left_join(ip_census_subset, unit_mapping,
+ip_census_crosswalk <- left_join(ip_census_crosswalk, unit_mapping,
                                  by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
 
 # Crosswalk census data with admit source
@@ -516,89 +516,154 @@ site_census_visual_agg(site = "MSW")
 ```
 
 
-```{r Test multiple graphs using lapply}
+<!-- ```{r Test multiple graphs using lapply} -->
+<!-- #  -->
+<!-- # # Custom function for plotting unit level census census -->
+<!-- # unit_type_census_plot2 <- function(data, title) { -->
+<!-- #  -->
+<!-- #   num_units <- length(unique(data$CENSUS_DEPT)) -->
+<!-- #  -->
+<!-- #   census_trend_plot <- ggplot(data = data, aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) + -->
+<!-- #     geom_line() + -->
+<!-- #     geom_point() + -->
+<!-- #     labs(title = title, x = "Date", y = "Census") + -->
+<!-- #     theme_bw() + -->
+<!-- #     theme(plot.title = element_text(size = 14, hjust = 0.5), -->
+<!-- #           legend.position = "bottom", -->
+<!-- #           legend.box = "horizontal", -->
+<!-- #           legend.title = element_text(size = 10), -->
+<!-- #           legend.text = element_text(size = 10), -->
+<!-- #           axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5), -->
+<!-- #           axis.text.y = element_text(size = 10), -->
+<!-- #           panel.grid.major = element_line(color = "lightgrey"), -->
+<!-- #           panel.grid.minor = element_line(color = "lightgrey")) + -->
+<!-- #     scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(data$CENSUS_DEPT))]) + -->
+<!-- #     scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y", -->
+<!-- #                  expand = c(0, 1), limits = c(start_date + 1, Sys.Date() - 1)) -->
+<!-- #  -->
+<!-- #   return(census_trend_plot) -->
+<!-- #  -->
+<!-- # } -->
+<!-- #  -->
+<!-- # site <- "MSW" -->
+<!-- #  -->
+<!-- # # Subset census data based on site and start date -->
+<!-- # site_df <- census_site_unit_type %>% -->
+<!-- #     filter(CensusSite == site & CensusDate > start_date) -->
+<!-- #  -->
+<!-- # # Determine unit types for this site -->
+<!-- # unit_types <- as.vector(unique(site_df$UnitRollUp)) -->
+<!-- #  -->
+<!-- # test <- lapply(unit_types, function(x) { -->
+<!-- #    -->
+<!-- #   cat("\n##", x, "\n") -->
+<!-- #   plot_df <- site_df %>% -->
+<!-- #     filter(UnitRollUp == x) -->
+<!-- #  -->
+<!-- #   num_units <- length(unique(plot_df$CENSUS_DEPT)) -->
+<!-- #  -->
+<!-- #   if (num_units <= max_num_units) { -->
+<!-- #  -->
+<!-- #     plot_title <- paste(site, x, "Census by Unit") -->
+<!-- #  -->
+<!-- #     unit_type_census_plot2(data = plot_df, title = plot_title) -->
+<!-- #  -->
+<!-- #   } else { -->
+<!-- #  -->
+<!-- #       # If the number of units exceeds the maximum number of units per graph, establish groupings -->
+<!-- #       # based on the total number of units and the maximum number of units per graph -->
+<!-- #       unit_numbers <- data.frame("Unit" = unique(plot_df$CENSUS_DEPT), stringsAsFactors = FALSE) -->
+<!-- #       unit_numbers <- unit_numbers %>% -->
+<!-- #         mutate(Number = row_number(), -->
+<!-- #                Grouping = ceiling(Number / max_num_units)) -->
+<!-- #  -->
+<!-- #       # Add text to plot title to include number of graphs for this unit type -->
+<!-- #       plot_df <- left_join(plot_df, unit_numbers[ , c("Unit", "Grouping")], by = c("CENSUS_DEPT" = "Unit")) -->
+<!-- #  -->
+<!-- #       groupings <- seq(1, max(plot_df$Grouping), 1) -->
+<!-- #  -->
+<!-- #       lapply(groupings, function(y) { -->
+<!-- #  -->
+<!-- #         grouping_df <- plot_df %>% -->
+<!-- #           filter(Grouping == y) -->
+<!-- #  -->
+<!-- #         plot_title <- paste(site, x, "Census by Unit (", y, "of", max(groupings), ")") -->
+<!-- #  -->
+<!-- #         unit_type_census_plot2(data = grouping_df, title = plot_title) -->
+<!-- #  -->
+<!-- #  -->
+<!-- #       }) -->
+<!-- #  -->
+<!-- #   } -->
+<!-- #  -->
+<!-- # }) -->
+<!-- #  -->
+<!-- # print(tagList(test)) -->
+<!-- #  -->
+<!-- ``` -->
 
-# site <- "MSH"
-# 
-# # Custom function for plotting unit level census census
-# unit_type_census_plot2 <- function(data, title) {
-#   
-#   num_units <- length(unique(data$CENSUS_DEPT))
-#   
-#   ggplot(data = data, aes(x = CensusDate, y = Census, color = CENSUS_DEPT)) +
-#     geom_line() +
-#     geom_point() +
-#     labs(title = title, x = "Date", y = "Census") +
-#     theme_bw() +
-#     theme(plot.title = element_text(size = 14, hjust = 0.5),
-#           legend.position = "bottom",
-#           legend.box = "horizontal",
-#           legend.title = element_text(size = 10),
-#           legend.text = element_text(size = 10),
-#           axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
-#           axis.text.y = element_text(size = 10),
-#           panel.grid.major = element_line(color = "lightgrey"),
-#           panel.grid.minor = element_line(color = "lightgrey")) +
-#     scale_color_manual(name = "Unit", values = sinai_colors[1:length(unique(data$CENSUS_DEPT))]) +
-#     scale_x_date(date_breaks = "7 days", minor_breaks = "1 day", date_labels = "%m/%d/%y",
-#                  expand = c(0, 1), limits = c(start_date + 1, Sys.Date() - 1))
-#   
-#   # print(census_trend_plot)
-# 
-# }
-# 
-# 
-# 
-# # Subset census data based on site and start date
-# site_df <- census_site_unit_type %>%
-#     filter(CensusSite == site & CensusDate > start_date)
-# 
-# # Determine unit types for this site
-# unit_types <- unique(site_df$UnitRollUp)
-# 
-# lapply(unit_types, function(x) {
-#   plot_df <- site_df %>%
-#     filter(UnitRollUp == x)
-#   
-#   num_units <- length(unique(plot_df$CENSUS_DEPT))
-#   
-#   if (num_units <= max_num_units) {
-#     
-#     plot_title <- paste(site, x, "Census by Unit")
-#     
-#     unit_type_census_plot2(data = plot_df, title = plot_title)
-#     
-#   } else {
-#     
-#       # If the number of units exceeds the maximum number of units per graph, establish groupings
-#       # based on the total number of units and the maximum number of units per graph
-#       unit_numbers <- data.frame("Unit" = unique(plot_df$CENSUS_DEPT), stringsAsFactors = FALSE)
-#       unit_numbers <- unit_numbers %>%
-#         mutate(Number = row_number(),
-#                Grouping = ceiling(Number / max_num_units))
-# 
-#       # Add text to plot title to include number of graphs for this unit type
-#       plot_df <- left_join(plot_df, unit_numbers[ , c("Unit", "Grouping")], by = c("CENSUS_DEPT" = "Unit"))
-#       
-#       groupings <- seq(1, max(plot_df$Grouping), 1)
-#       
-#       lapply(groupings, function(y) {
-#         
-#         grouping_df <- plot_df %>%
-#           filter(Grouping == y)
-#         
-#         plot_title <- paste(site, x, "Census by Unit (", y, "of", max(groupings), ")")
-#         
-#         unit_type_census_plot2(data = grouping_df, title = plot_title)
-#       
-#       
-#       })
-# 
-#   }
-#     
-# })
+<!-- ```{r Test replacing function with multiple nested lapply statements, echo = FALSE, results = 'asis'} -->
+<!-- # -->
+<!-- # sites <- unique(census_site_unit_type$CensusSite) -->
+<!-- # -->
+<!-- # lapply(sites, function(x) { -->
+<!-- # -->
+<!-- #   cat(" \n##", x, " Test\n") -->
+<!-- # -->
+<!-- #   # Subset census data based on site and start date -->
+<!-- #   site_df <- census_site_unit_type %>% -->
+<!-- #     filter(CensusSite == x & CensusDate > start_date) -->
+<!-- # -->
+<!-- #   # Determine unit types for this site -->
+<!-- #   unit_types <- as.vector(unique(site_df$UnitRollUp)) -->
+<!-- # -->
+<!-- #   # Iterate through unit types for this site -->
+<!-- #   lapply(unit_types, function(y) { -->
+<!-- # -->
+<!-- #     cat(" \n###", y, "\n") -->
+<!-- # -->
+<!-- #     plot_df <- site_df %>% -->
+<!-- #       filter(UnitRollUp == y) -->
+<!-- # -->
+<!-- #     num_units <- length(unique(plot_df$CENSUS_DEPT)) -->
+<!-- # -->
+<!-- #     if (num_units <= max_num_units) { -->
+<!-- #       plot_title <- paste(x, y, "Census by Unit") -->
+<!-- # -->
+<!-- #       unit_type_census_plot2(data = plot_df, title = plot_title) -->
+<!-- # -->
+<!-- #     } else { -->
+<!-- # -->
+<!-- #         # If the number of units exceeds the maximum number of units per graph, establish groupings -->
+<!-- #         # based on the total number of units and the maximum number of units per graph -->
+<!-- #         unit_numbers <- data.frame("Unit" = unique(plot_df$CENSUS_DEPT), stringsAsFactors = FALSE) -->
+<!-- # -->
+<!-- #         unit_numbers <- unit_numbers %>% -->
+<!-- #           mutate(Number = row_number(), -->
+<!-- #                  Grouping = ceiling(Number / max_num_units)) -->
+<!-- # -->
+<!-- #         # Add text to plot title to include number of graphs for this unit type -->
+<!-- #         plot_df <- left_join(plot_df, unit_numbers[ , c("Unit", "Grouping")], by = c("CENSUS_DEPT" = "Unit")) -->
+<!-- # -->
+<!-- #         groupings <- seq(1, max(plot_df$Grouping), 1) -->
+<!-- # -->
+<!-- #         # Iterate through unit groupings if the number of units exceeds the desired number of curves on the graph -->
+<!-- #         lapply(groupings, function(z) { -->
+<!-- # -->
+<!-- #           grouping_df <- plot_df %>% -->
+<!-- #             filter(Grouping == z) -->
+<!-- # -->
+<!-- #           plot_title <- paste0(x, " ", y, " Census by Unit (", z, " of ", max(groupings), ")") -->
+<!-- # -->
+<!-- #           unit_type_census_plot2(data = grouping_df, title = plot_title) -->
+<!-- # -->
+<!-- #           }) -->
+<!-- # -->
+<!-- #       } -->
+<!-- # -->
+<!-- # -->
+<!-- #   }) -->
+<!-- # -->
+<!-- # }) -->
 
-
-
-
-```
+<!-- ``` -->

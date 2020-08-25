@@ -30,12 +30,12 @@ oracle_ip_census_df <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
 
 end1 <- proc.time() - start1
 
-# # Import COVID census for Epic sites
-# start2 <- proc.time()
-# 
-# oracle_covid_census_df <- tbl(con, "COVID_IP_PATIENT_DAYS_DETAIL") %>%
-#   filter(year(CENSUS_DATE) == 2020 &
-#            !(IP_SITE %in% c("MSSN", "MSBI", "UNDETERMINED"))) %>%
-#   collect()
-# 
-# end2 <- proc.time() - start2
+# Import COVID census for Epic sites
+start2 <- proc.time()
+
+oracle_covid_census_df <- tbl(con, "COVID_IP_PATIENT_DAYS_DETAIL") %>%
+  filter(year(CENSUS_DATE) == 2020 &
+           !(IP_SITE %in% c("MSSN", "MSBI", "UNDETERMINED"))) %>%
+  collect()
+
+end2 <- proc.time() - start2
