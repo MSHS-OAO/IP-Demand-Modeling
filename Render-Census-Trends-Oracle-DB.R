@@ -15,6 +15,6 @@ if (list.files("J://") == "Presidents") {
 
 # Render markdown file for visualizing census trends
 rmarkdown::render(input = "Census-Trend-Visualizations.Rmd", 
-                  output_file = paste0(user_directory, "/Epic Census Rmd Output/Census Test ",
+                  output_file = paste0(user_directory, "/Epic Census Rmd Output/IP Census Dashboard ",
                   Sys.Date()))
 
