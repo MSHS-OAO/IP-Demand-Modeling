@@ -10,7 +10,7 @@ output:
 ---
   
 #### Report created on `r format(Sys.Date(), "%m/%d/%y")`
-#### Census data available through `r format(Sys.Date() - 1, "%m/%d/%y")`
+#### Census data available through `r format(Sys.Date() - 1, "%m/%d/%y")` 11:59PM
 ```{r Install and load packages, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
 # install.packages("dplyr")
 # install.packages("lubridate")
@@ -84,6 +84,9 @@ admission_type_mapping <- ref_data[[3]]
 ```
 
 ```{r Reference data}
+# Site orders for tables
+site_order <- c("MSH", "MSQ", "MSB", "MSM", "MSW", "MSHS")
+
 # Order unit types for plotting
 unit_type_order <- c("ICU", "Med Surg", "COVID Surge", "Peds & Peds ICU", "L&D & Postpartum",
                      "Nursery & NICU", "Psych & Rehab", "ED", "Psych ED", "Non-IP")
@@ -480,6 +483,44 @@ site_census_visual_agg <- function(site) {
 ```
 
 
+```{r Create a kable with unit mappings for reference}
+
+unit_rollup_order <- c("ICU", "Med Surg", "COVID Surge",
+                       "L&D & Postpartum", 
+                       "Nursery & NICU", "Peds & Peds ICU",
+                       "Psych & Rehab",
+                       "ED", "Psych ED", 
+                       "Non-IP")
+
+# Create a dataframe with unit mappings
+unit_mappings_reference <- unit_mapping %>%
+  filter(CensusSite != "MSBI") %>%
+  select(CensusSite, UnitRollUp, CENSUS_DEPT)
+
+unit_mappings_reference$CensusSite <- factor(unit_mappings_reference$CensusSite,
+                                         levels = site_order,
+                                         ordered = TRUE)
+
+unit_mappings_reference$UnitRollUp <- factor(unit_mappings_reference$UnitRollUp,
+                                         levels = unit_rollup_order, 
+                                         ordered = TRUE)
+
+unit_mappings_reference <- unit_mappings_reference %>%
+  arrange(CensusSite, UnitRollUp)
+
+
+unit_mappings_kable <- kable(unit_mappings_reference, format = "html", escape = FALSE, align = "c", digits = 0,
+      col.names =c("Site", "Unit Type", "Census Dept"),
+      caption = "Unit Mappings by Site") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1:3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(1:3), background = sinai_colors[1], color = "white", include_thead = TRUE) %>%
+  column_spec(column = c(1:3), background = "inherit", color = "inherit") %>%
+  collapse_rows(valign = "top")
+
+```
+
+
 ## MSH
 ```{r Plot MSH census trends, results = 'asis'}
 site_census_visual_agg(site = "MSH")
@@ -512,6 +553,41 @@ site_census_visual_agg(site = "MSM")
 ## MSW
 ```{r Plot MSW census trends, results = 'asis'}
 site_census_visual_agg(site = "MSW")
+
+```
+
+
+## Methodology and Data Sources
+<h4><b>Data Sources:</b></h4>
+Analysis based on Epic midnight census data. Data obtained from Oracle database table "EMR_EMR_ALL_PAT_DAYS_MSX".
+<h4></h4></br>
+
+
+<h4><b>Notes on Go-Live Dates:</b></h4>
+
+1. MSB Epic inpatient go-live date of 9/8/2019. All inpatient data for MSB prior to this date is excluded.
+    + ADC for MSB for September 2019 takes this start date into account.
+2. MSBI Epic inpatient go-live did not occur until August 2020 and is not included in this analysis as a result.
+
+
+<h4><b>Analysis Methodology:</b></h4>
+All inpatient units are classified in one of the categories listed below:
+
+1. Adult ICU
+2. Adult Med Surg
+3. COVID Surge
+4. Peds & Peds ICU
+5. L&D and Postpartum
+6. Nursery & NICU
+7. Psych & Rehab
+
+ED, Psych ED, and non-inpatient units are excluded from analysis. 
+
+The table below summarizes the unit mappings for each site.
+
+```{r Display unit mappings table}
+
+unit_mappings_kable
 
 ```
 
