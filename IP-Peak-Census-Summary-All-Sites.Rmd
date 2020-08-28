@@ -1,0 +1,408 @@
+---
+title: "MSHS Census Summary"
+output: html_document
+
+---
+  
+#### Report created on `r format(Sys.Date(), "%m/%d/%y")`
+```{r Install and load packages, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+# install.packages("dplyr")
+# install.packages("lubridate")
+# install.packages("readxl")
+# install.packages("writexl")
+# install.packages("ggplot2")
+# install.packages("lubridate")
+# install.packages("reshape2")
+# install.packages("svDialogs")
+# install.packages("stringr")
+# install.packages("formattable")
+# install.packages("scales")
+# install.packages("knitr")
+# install.packages("rmarkdown")
+# install.packages("kableExtra")
+# install.packages("DBI")
+# install.packages("odbc")
+# install.packages("dbplyr")
+
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(lubridate)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
+library(knitr)
+library(rmarkdown)
+library(kableExtra)
+library(DBI)
+library(odbc)
+library(dbplyr)
+
+```
+
+```{r Set global options, include = FALSE}
+
+rm(list = ls())
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
+
+```
+
+
+```{r Determine drive mapping for output}
+
+if (list.files("J://") == "Presidents") {
+  user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+} else {
+  user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+}
+
+```
+
+```{r Connect to Oracle database and import IP census data for Epic sites}
+
+# Establish connection to Oracle database
+con <- dbConnect(odbc(), 
+                 Driver = "Oracle in OraClient12Home1", 
+                 DBQ = "idf02-scan/IDMREPD",
+                 Schema = "COO_USER",
+                 UID = "COO_USER",
+                 PWD = "CO02O02rPaVc*MqP", 
+                 Port = 1521)
+
+
+# Import IP census for Epic sites for 03/20-04/20
+start1 <- proc.time()
+
+oracle_ip_census_df <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
+  filter(year(CENSUS_DATE) == 2020 &
+           month(CENSUS_DATE) >= 3 &
+           month(CENSUS_DATE) <= 4) %>%
+  collect()
+
+end1 <- proc.time() - start1
+
+```
+
+
+```{r Import reference file with unit mappings}
+
+epic_unit_mappings <- read_xlsx(path = paste0(user_directory, "/Epic Census Trending/Epic-Oracle-Census-Unit-Mappings-2020-08-05.xlsx"), sheet = "UnitMappings", na = c("", "NA"))
+
+# Manually update unit mappings for MSW 14A to reflect change from Antepartum to Med Surg during first surge
+epic_unit_mappings <- epic_unit_mappings %>%
+  mutate(UnitType = ifelse(CENSUS_DEPT == "MAIN 14A", "Adult MS", UnitType),
+         UnitRollUp = ifelse(CENSUS_DEPT == "MAIN 14A", "Med Surg", UnitRollUp))
+
+```
+
+
+```{r Import MSBI DivePort census data and unit mppings}
+
+# Import census data for March and April 2020
+mar20_raw_data <- read_excel(paste0(user_directory, "/Ad Hoc Analysis Outputs for AZ/BISLR_Census_Days_by_Unit DivePort 03-2020.xls"), skip = 7, na = c("", NA))
+
+apr20_raw_data <- read_excel(paste0(user_directory, "/Ad Hoc Analysis Outputs for AZ/BISLR_Census_Days_by_Unit DivePort 04-2020.xls"), skip = 7, na = c("", NA))
+
+# Remove extra rows at end
+mar20_raw_data <- mar20_raw_data[1:(nrow(mar20_raw_data) - 6), ]
+apr20_raw_data <- apr20_raw_data[1:(nrow(apr20_raw_data) - 6), ]
+
+# Remove Total column from census dataframes
+mar20_raw_data$Total <- NULL
+apr20_raw_data$Total <- NULL
+
+# Import reference file for unit mappings
+diveport_unit_mappings <- read_excel(paste0(user_directory, "/Ad Hoc Analysis Outputs for AZ/DivePort_Census_Unit_Reference_2020-08-28.xlsx"), na = c("", NA))
+
+
+```
+
+
+```{r Reference data for tables}
+
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
+
+site_order <- c("MSH", "MSQ", "MSBI", "MSB", "MSM", "MSW", "MSHS")
+
+start_date <- as.Date("3/16/20", format = "%m/%d/%y")
+
+
+```
+
+
+```{r Format Epic raw census data}
+epic_ip_census_df <- oracle_ip_census_df
+
+# Remove sites not on Epic during surge, format census date, and determine if the census date is an ICU day
+# ICU Logic: 
+# All sites besides MSQ: accommodation code of intensive care or coronary care
+# MSQ: Unit 6 ICU or 5 East and 6 East starting on 3/28/20
+
+epic_ip_census_df <- epic_ip_census_df %>%
+  filter(IP_SITE != "MSBI") %>%
+  mutate(CensusDate = date(CENSUS_DATE), 
+         ICUDay = (IP_SITE != "MSQ" & ACCOMMODATION_DESC %in% c("INTENSIVE CARE", "CORONARY CARE")) |
+           CENSUS_DEPT == "MSQ 6 ICU" | 
+           (CENSUS_DEPT %in% c("MSQ 5 EAST", "MSQ 6 EAST") &
+              CensusDate >= as.Date("03/28/2020", format = "%m/%d/%Y")),
+         CriticalCareDay = (ICUDay == 1 | VENT_NON_ICU == 1))
+
+# Crosswalk census data with unit mappings
+epic_ip_census_df <- left_join(epic_ip_census_df, epic_unit_mappings,
+                          by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
+
+```
+
+
+```{r Subset Epic adult census and summarize data}
+
+# Subset all IP census days to only include adult ICU, adult med-surg, and COVID surge units and exclude discharge days
+epic_adult_census <- epic_ip_census_df %>%
+  filter(CensusDate >= start_date, 
+         UnitType %in% c("Adult ICU", "Adult MS", "COVID Surge") &
+           PATIENT_DAY == 1)
+
+# Summarize census by day for each site
+epic_site_adult_census_summary <- epic_adult_census %>%
+  group_by(CensusSite, CensusDate) %>%
+  summarize(Adult_Census = sum(PATIENT_DAY),
+            CC_Census = sum(CriticalCareDay, na.rm = TRUE),
+            MS_Census = Adult_Census - CC_Census) %>%
+  ungroup()
+
+```
+
+
+```{r Format Diveport census data for MSBI}
+
+# Melt dataframes
+dp_mar20_df <- melt(mar20_raw_data, id.vars = "Census Date")
+dp_apr20_df <- melt(apr20_raw_data, id.vars = "Census Date")
+
+# Combine March and April into one dataframe
+msbi_census_df <- rbind(dp_mar20_df, dp_apr20_df)
+
+# Rename columns and replace NA with 0
+msbi_census_df <- msbi_census_df %>%
+  mutate(CensusDate = as.Date(as.numeric(`Census Date`), origin = "1900-01-01") - 2,
+         variable = as.character(variable), 
+         value = ifelse(is.na(value), 0, value))
+
+msbi_census_df <- msbi_census_df[ , c("CensusDate", "variable", "value")]
+colnames(msbi_census_df) <- c("CensusDate", "Unit", "Census")
+
+# Crosswalk with unit mappings
+msbi_census_df <- left_join(msbi_census_df, diveport_unit_mappings[ , c("MSBI DivePort Units", "Include/Exclude", "Unit Type")], by = c("Unit" = "MSBI DivePort Units"))
+
+# Remove non ICU and med surg units
+msbi_census_df <- msbi_census_df %>%
+  filter(`Include/Exclude` == "Include")
+
+# Summarize census data
+msbi_census_summary <- msbi_census_df %>%
+  filter(CensusDate >= start_date) %>%
+  group_by(CensusDate) %>%
+  summarize(CensusSite = "MSBI", 
+            Adult_Census = sum(Census),
+            CC_Census = sum(Census[which(`Unit Type` == "ICU")]),
+            MS_Census = sum(Census[which(`Unit Type` == "M/S")])) %>%
+  ungroup()
+
+msbi_census_summary <- msbi_census_summary[ , c("CensusSite", "CensusDate", 
+                                                "Adult_Census", "CC_Census", "MS_Census")]
+
+
+```
+
+
+```{r Combine Epic and Diveport data to determine system census}
+
+# Bind together daily census for Epic sites and MSBI
+all_sites_adult_census <- rbind(epic_site_adult_census_summary, msbi_census_summary)
+
+# Summarize census across all sites to determine system total daily census
+system_adult_census_summary <- all_sites_adult_census %>%
+  group_by(CensusDate) %>%
+  summarize(CensusSite = "MSHS",
+            Adult_Census = sum(Adult_Census),
+            CC_Census = sum(CC_Census),
+            MS_Census = sum(MS_Census)) %>%
+  ungroup()
+
+# Reorder columns
+system_adult_census_summary <- system_adult_census_summary[ , colnames(all_sites_adult_census)]
+
+# Bind site and system census together
+site_system_census_summary <- rbind(all_sites_adult_census, system_adult_census_summary)
+
+# Set census sites as factor for sorting
+site_system_census_summary$CensusSite <- factor(site_system_census_summary$CensusSite, 
+                                          levels = site_order,
+                                          ordered = TRUE)
+
+```
+
+```{r Determine peak census and create kable}
+
+# Create dataframe with peak total census, critical care census, and med-surg census
+peak_census_summary <- site_system_census_summary %>%
+  group_by(CensusSite) %>%
+  summarize(PeakAdultCensusDate = CensusDate[which.max(Adult_Census)], 
+            PeakAdultCensus = Adult_Census[which.max(Adult_Census)],
+            PeakCCCensusDate = CensusDate[which.max(CC_Census)],
+            PeakCCCensus = CC_Census[which.max(CC_Census)],
+            PeakMSCensusDate = CensusDate[which.max(MS_Census)],
+            PeakMSCensus = MS_Census[which.max(MS_Census)]) %>%
+  arrange(CensusSite)
+
+
+# Create kable to visualize results
+peak_census_kable <- kable(peak_census_summary, format = "html", escape = FALSE, align = "c", digits = 0,
+                           col.names =c("Site", "Date", "Census", "Date", "Census", "Date", "Census"),
+                           caption = paste0("Peak IP Census During COVID Surge (",
+                                            format(start_date, "%m/%d/%y"), " - ", 
+                                            format(max(site_system_census_summary$CensusDate), "%m/%d/%y"),
+                                            ")")) %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1, 3, 5, 7), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(2:3), background = sinai_colors[1], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(4:5), background = sinai_colors[2], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(6:7), background = sinai_colors[3], color = "white", include_thead =  TRUE) %>%
+  column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%  
+  # row_spec(row = 0, background = "#221f72", color = "white") %>%
+  row_spec(row = nrow(peak_census_summary), background = "lightgrey", bold = T) %>%
+  add_header_above(c(" " = 1, "Total Adult Census" = 2, "Adult Critical Care Census" = 2, "Adult Med Surg Census" = 2), background = c("", sinai_colors[1], sinai_colors[2], sinai_colors[3]), color = "white", line = FALSE)
+
+
+```
+
+
+```{r Create a kable with Epic unit mappings for reference}
+
+unit_rollup_order <- c("ICU", "Med Surg", "COVID Surge",
+                       "L&D & Postpartum", 
+                       "Nursery & NICU", "Peds & Peds ICU",
+                       "Psych & Rehab",
+                       "ED", "Psych ED", 
+                       "Non-IP")
+
+# Create a dataframe with unit mappings
+epic_unit_mappings_reference <- epic_unit_mappings %>%
+  filter(CensusSite != "MSBI") %>%
+  select(CensusSite, UnitRollUp, CENSUS_DEPT)
+
+epic_unit_mappings_reference$CensusSite <- factor(epic_unit_mappings_reference$CensusSite,
+                                             levels = site_order,
+                                             ordered = TRUE)
+
+epic_unit_mappings_reference$UnitRollUp <- factor(epic_unit_mappings_reference$UnitRollUp,
+                                             levels = unit_rollup_order, 
+                                             ordered = TRUE)
+
+epic_unit_mappings_reference <- epic_unit_mappings_reference %>%
+  arrange(CensusSite, UnitRollUp)
+
+
+epic_unit_mappings_kable <- kable(epic_unit_mappings_reference, format = "html", escape = FALSE, align = "c", digits = 0,
+                             col.names =c("Site", "Unit Type", "Census Dept"),
+                             caption = "Epic Sites Unit Mappings") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1:3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(1:3), background = sinai_colors[1], color = "white", include_thead = TRUE) %>%
+  column_spec(column = c(1:3), background = "inherit", color = "inherit") %>%
+  collapse_rows(valign = "top")
+
+```
+
+
+```{r Create a kable with DivePort unit mappings for reference}
+
+dp_criteria <- c("Include", "Exclude")
+dp_unit_types <- c("ICU", "M/S", "Psych", "Detox", "Non-IP", NA)
+
+dp_unit_mappings_reference <- diveport_unit_mappings %>%
+  select(`MSBI DivePort Units`, `Unit Type`, `Include/Exclude`)
+
+colnames(dp_unit_mappings_reference) <- c("UnitName", "UnitType", "InclExcl")
+
+dp_unit_mappings_reference$InclExcl <- factor(dp_unit_mappings_reference$InclExcl, 
+                                                       levels = dp_criteria, ordered = TRUE)
+
+dp_unit_mappings_reference$UnitType <- factor(dp_unit_mappings_reference$UnitType,
+                                              levels = dp_unit_types, ordered = TRUE)
+
+dp_unit_mappings_reference <- dp_unit_mappings_reference %>%
+  arrange(UnitType, InclExcl)
+
+dp_unit_mappings_kable <- kable(dp_unit_mappings_reference, format = "html", escape = FALSE, align = "c", digits = 0,
+                             col.names =c("Unit", "Unit Type", "Include/Exclude from Analysis"),
+                             caption = "MSBI Unit Classification and Inclusion Criteria") %>%
+  kable_styling(bootstrap_options = "hover", position = "center", font_size = 11, full_width = FALSE) %>%
+  column_spec(column = c(1:3), border_right = "thin solid lightgray") %>%
+  column_spec(column = c(1:3), background = sinai_colors[1], color = "white", include_thead = TRUE) %>%
+  column_spec(column = c(1:3), background = "inherit", color = "inherit")
+
+
+```
+
+## {.tabset}
+
+### Peak Census Results
+```{r Display peak census results}
+
+peak_census_kable
+
+```
+
+### Methodology and Data Sources
+<h4><b>Data Sources:</b></h4>
+
+1. Epic Sites: Analysis based on Epic midnight census data. Data obtained from Oracle database table "EMR_EMR_ALL_PAT_DAYS_MSX" pulled on `r Sys.Date()`.
+2. MSBI: Analysis based on DivePort midnight census data for March and April 2020. Data pulled on 08/27/2020.
+<h4></h4></br>
+
+  
+<h4><b>Analysis Assumptions:</b></h4>
+
+1. COVID Surge Start Date: Analysis assumes a start date of 3/16/20.
+2. Epic Sites Critical Care Classifications:
+    + For sites other than MSQ, ICU patients are identified as those with Accommodation Code of Intensive Care or Coronary Care
+    + For MSQ, any patient in unit MSQ 6 ICU is classified as a critical care patient. Any patient in MSQ 6 IMCU and MSQ 5 East starting on 3/28/20 is also classified as a critical care patient.
+    + For all sites, any patient with a vent but not in an ICU is classified as a critical care patient.
+3. MSBI ICU Classifications based on unit's primary use during COVID surge. See reference table below.
+<h4></h4></br>
+  
+  
+<h4><b>Analysis Methodology:</b></h4>
+Epic sites analysis follows process and logic described below:
+  
+1. Unit type mappings:
+    + Analysis only includes units mapped as Adult ICU, Adult Med Surg, and COVID Surge.
+    + All other units (Peds, MCH, Psych, Rehab, etc.) are excluded from analysis.
+    + See "Unit Mappings" table for reference.
+2. Calculate Total Adult Census and Adult Critical Care Census based on unit inclusion criteria and critical care classifications.
+3. Calculate Adult Med Surg Census as difference between Total Adult Census and Adult Critical Care Census.
+4. Determine date when Total Adult Census, Adult Critical Care Census, and Adult Med Surge Census peaked for each site.
+    + Note: Not all peak census occur on the same day for a given site.
+<h4></h4></br>
+  
+  
+<h4><b>Epic Unit Mappings:</b></h4>
+```{r Display Epic unit mappings kable}
+
+epic_unit_mappings_kable
+
+```
+
+<h4><b>MSBI Unit Mappings:</b></h4>
+```{r Display MSBI unit mappings kable}
+
+dp_unit_mappings_kable
+
+```
+
