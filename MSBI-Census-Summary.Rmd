@@ -1,0 +1,143 @@
+---
+  title: "MSHS Census Summary"
+output: html_document
+
+---
+  
+  #### Report created on `r format(Sys.Date(), "%m/%d/%y")`
+```{r Install and load packages, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+# install.packages("dplyr")
+# install.packages("lubridate")
+# install.packages("readxl")
+# install.packages("writexl")
+# install.packages("ggplot2")
+# install.packages("lubridate")
+# install.packages("reshape2")
+# install.packages("svDialogs")
+# install.packages("stringr")
+# install.packages("formattable")
+# install.packages("scales")
+# install.packages("knitr")
+# install.packages("rmarkdown")
+# install.packages("kableExtra")
+# install.packages("DBI")
+# install.packages("odbc")
+# install.packages("dbplyr")
+
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(lubridate)
+library(reshape2)
+library(svDialogs)
+library(stringr)
+library(formattable)
+library(scales)
+library(knitr)
+library(rmarkdown)
+library(kableExtra)
+library(DBI)
+library(odbc)
+library(dbplyr)
+
+```
+
+```{r Set global options, include = FALSE}
+
+rm(list = ls())
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
+
+```
+
+
+```{r Determine drive mapping for output}
+
+if (list.files("J://") == "Presidents") {
+  user_directory <- "J:/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+} else {
+  user_directory <- "J:/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/COVID Scenario Testing"
+}
+
+```
+
+
+```{r Import file with census data and unit criteria}
+
+# Import census data for March and April 2020
+mar20_raw_data <- read_excel(paste0(user_directory, "/Ad Hoc Analysis Outputs for AZ/BISLR_Census_Days_by_Unit DivePort 03-2020.xls"), skip = 7, na = c("", NA))
+
+apr20_raw_data <- read_excel(paste0(user_directory, "/Ad Hoc Analysis Outputs for AZ/BISLR_Census_Days_by_Unit DivePort 04-2020.xls"), skip = 7, na = c("", NA))
+
+# Remove extra rows at end
+mar20_raw_data <- mar20_raw_data[1:(nrow(mar20_raw_data) - 6), ]
+apr20_raw_data <- apr20_raw_data[1:(nrow(apr20_raw_data) - 6), ]
+
+# Remove Total column from census dataframes
+mar20_raw_data$Total <- NULL
+apr20_raw_data$Total <- NULL
+
+# Import reference file for unit mappings
+unit_mappings <- read_excel(paste0(user_directory, "/Ad Hoc Analysis Outputs for AZ/DivePort_Census_Unit_Reference_2020-08-28.xlsx"), na = c("", NA))
+
+
+
+
+
+```
+
+
+```{r Reference data for tables}
+
+sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B2", "#F887CE")
+
+site_order <- c("MSH", "MSQ", "MSB", "MSM", "MSW", "MSHS")
+
+start_date <- as.Date("3/16/20", format = "%m/%d/%y")
+
+
+```
+
+```{r Format census data}
+
+mar20_df <- melt(mar20_raw_data, id.vars = "Census Date")
+apr20_df <- melt(apr20_raw_data, id.vars = "Census Date")
+
+surge_df <- rbind(mar20_df, apr20_df)
+
+surge_df <- surge_df %>%
+  mutate(CensusDate = as.Date(as.numeric(`Census Date`), origin = "1900-01-01") - 2,
+         variable = as.character(variable), 
+         value = ifelse(is.na(value), 0, value))
+
+surge_df <- surge_df[ , c("CensusDate", "variable", "value")]
+colnames(surge_df) <- c("CensusDate", "Unit", "Census")
+
+# Crosswalk with unit mappings
+surge_df <- left_join(surge_df, unit_mappings[ , c("MSBI DivePort Units", "Include/Exclude", "Unit Type")], by = c("Unit" = "MSBI DivePort Units"))
+
+# Remove non ICU and med surg units
+surge_df <- surge_df %>%
+  filter(`Include/Exclude` == "Include")
+
+# Summarize census data
+surge_census_summary <- surge_df %>%
+  group_by(CensusDate) %>%
+  summarize(TotalCensus = sum(Census),
+            ICUCensus = sum(Census[which(`Unit Type` == "ICU")]),
+            MSCensus = sum(Census[which(`Unit Type` == "M/S")]))
+
+surge_census_peaks <- surge_census_summary %>%
+  summarize(PeakTotalCensusDate = CensusDate[which.max(TotalCensus)],
+         PeakTotalCensus = TotalCensus[which.max(TotalCensus)],
+         PeakICUCensusDate = CensusDate[which.max(ICUCensus)],
+         PeakICUCensus = ICUCensus[which.max(ICUCensus)],
+         PeakMSCensusDate = CensusDate[which.max(MSCensus)],
+         PeakMSCensus = MSCensus[which.max(MSCensus)])
+
+
+```
+
+
