@@ -269,7 +269,7 @@ msbi_census_df <- msbi_census_df %>%
 
 # Summarize census data
 msbi_census_summary <- msbi_census_df %>%
-  filter(CensusDate >= start_date) %>%
+  filter(CensusDate >= wave1_start_date) %>%
   group_by(CensusDate) %>%
   summarize(CensusSite = "MSBI", 
             Adult_Census = sum(Census),
@@ -360,7 +360,7 @@ peak_census_wave1_kable <-
                      "Date", "Census",
                      "Date", "Census"),
         caption = paste0("Peak IP Census During First COVID Surge (",
-                         format(start_date, "%m/%d/%y"),
+                         format(wave1_start_date, "%m/%d/%y"),
                          " - ",
                          format(
                            max(site_system_census_wave1_summary$CensusDate),
@@ -463,7 +463,7 @@ peak_census_wave2_kable <-
                      "Date", "Census",
                      "Date", "Census"),
         caption = paste0("Peak IP Census During Second COVID Surge (",
-                         format(start_date, "%m/%d/%y"),
+                         format(wave2_start_date, "%m/%d/%y"),
                          " - ",
                          format(
                            max(site_system_census_wave2_summary$CensusDate),
@@ -623,7 +623,7 @@ dp_unit_mappings_kable <-
 ## {.tabset}
 
 ### First Surge Census Results
-```{r Display peak census results}
+```{r Display census results for wave 1}
 
 peak_census_wave1_kable
 
@@ -632,7 +632,7 @@ census_covid_peak_wave1_kable
 ```
 
 ### Second Surge Census Results
-```{r Display peak census results}
+```{r Display census results for wave 2}
 
 peak_census_wave2_kable
 
