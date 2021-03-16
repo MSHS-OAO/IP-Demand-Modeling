@@ -82,14 +82,14 @@ con <- dbConnect(odbc(),
 # Import IP census for Epic sites for 03/20-04/20
 start1 <- proc.time()
 
-wave1_ip_census <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
+surge1_ip_census <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
   filter((year(CENSUS_DATE) == 2020 &
            month(CENSUS_DATE) >= 3 &
            month(CENSUS_DATE) <= 4)) %>%
   collect()
 
 
-wave2_ip_census <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
+surge2_ip_census <- tbl(con, "EMR_ALL_PAT_DAYS_MSX") %>%
   filter(CENSUS_DATE >= TO_DATE('2020-12-01', 'yyyy-mm-dd')) %>%
   collect()
 
@@ -115,7 +115,7 @@ epic_unit_mappings <- epic_unit_mappings %>%
 ```
 
 
-```{r Import MSBI DivePort census data and unit mppings}
+```{r Import MSBI DivePort census data and unit mppings from before MSBI Epic go-live}
 
 # Import census data for March and April 2020
 mar20_raw_data <- read_excel(paste0(
@@ -157,28 +157,27 @@ sinai_colors <- c("#221f72", "#00AEEF", "#D80B8C", "#4C4D4C", "#8988dd", "#B2B3B
 
 site_order <- c("MSH", "MSQ", "MSBI", "MSB", "MSM", "MSW", "MSHS")
 
-wave1_start_date <- as.Date("3/16/20", format = "%m/%d/%y")
+# Specify start dates for first and second surge
+surge1_start_date <- as.Date("3/16/20", format = "%m/%d/%y")
+surge2_start_date <- as.Date("12/1/20", format = "%m/%d/%y")
 
-wave2_start_date <- as.Date("12/1/20", format = "%m/%d/%y")
-
-wave1_peak_covid_date <- as.Date("4/9/20", format = "%m/%d/%y")
-
-wave2_peak_covid_date <- as.Date("1/18/21", format = "%m/%d/%y")
+# Specify date of peak COVID census for first and second surge
+surge1_peak_covid_date <- as.Date("4/9/20", format = "%m/%d/%y")
+surge2_peak_covid_date <- as.Date("1/18/21", format = "%m/%d/%y")
 
 ```
 
 
 ```{r Format Epic raw census data}
-epic_census_wave1 <- wave1_ip_census
-epic_census_wave2 <- wave2_ip_census
+surge1_census <- surge1_ip_census
+surge2_census <- surge2_ip_census
 
 # Remove sites not on Epic during first surge, format census date, and determine
 # if the census date is an ICU day
 # ICU Logic: 
 # All sites besides MSQ: accommodation code of intensive care or coronary care
 # MSQ: Unit 6 ICU or 5 East and 6 East starting on 3/28/20
-
-epic_census_wave1 <- epic_census_wave1 %>%
+surge1_census <- surge1_census %>%
   filter(IP_SITE != "MSBI") %>%
   mutate(CensusDate = date(CENSUS_DATE), 
          ICUDay = (IP_SITE != "MSQ" & ACCOMMODATION_DESC %in%
@@ -189,21 +188,20 @@ epic_census_wave1 <- epic_census_wave1 %>%
          CriticalCareDay = (ICUDay == 1 | VENT_NON_ICU == 1))
 
 # Crosswalk census data with unit mappings
-epic_census_wave1 <- left_join(epic_census_wave1, epic_unit_mappings,
+surge1_census <- left_join(surge1_census, epic_unit_mappings,
                           by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
 
 # Format census date and determine if the census date is an ICU day
-epic_census_wave2 <- epic_census_wave2 %>%
+# Assume MSQ 6 EAST IMCU is all converted to ICU for surge 2
+surge2_census <- surge2_census %>%
   mutate(CensusDate = date(CENSUS_DATE), 
          ICUDay = (IP_SITE != "MSQ" & ACCOMMODATION_DESC %in%
                      c("INTENSIVE CARE", "CORONARY CARE")) |
-           CENSUS_DEPT == "MSQ 6 ICU" | 
-           (CENSUS_DEPT %in% c("MSQ 5 EAST", "MSQ 6 EAST") &
-              CensusDate >= as.Date("03/28/2020", format = "%m/%d/%Y")),
+           CENSUS_DEPT %in% c("MSQ 6 ICU", "MSQ 6 EAST"),
          CriticalCareDay = (ICUDay == 1 | VENT_NON_ICU == 1))
 
 # Crosswalk census data with unit mappings
-epic_census_wave2 <- left_join(epic_census_wave2, epic_unit_mappings,
+surge2_census <- left_join(surge2_census, epic_unit_mappings,
                           by = c("CENSUS_DEPT" = "CENSUS_DEPT"))
 
 ```
@@ -212,18 +210,18 @@ epic_census_wave2 <- left_join(epic_census_wave2, epic_unit_mappings,
 ```{r Subset Epic adult census and summarize data}
 
 # Subset all IP census days to only include adult ICU, adult med-surg, and COVID surge units and exclude discharge days
-epic_adult_census_wave1 <- epic_census_wave1 %>%
-  filter(CensusDate >= wave1_start_date, 
+surge1_adult_census <- surge1_census %>%
+  filter(CensusDate >= surge1_start_date, 
          UnitType %in% c("Adult ICU", "Adult MS", "COVID Surge") &
            PATIENT_DAY == 1)
 
-epic_adult_census_wave2 <- epic_census_wave2 %>%
-  filter(CensusDate >= wave2_start_date, 
+surge2_adult_census <- surge2_census %>%
+  filter(CensusDate >= surge2_start_date, 
          UnitType %in% c("Adult ICU", "Adult MS", "COVID Surge") &
            PATIENT_DAY == 1)
 
 # Summarize census by day for each site
-epic_site_adult_census_wave1_summary <- epic_adult_census_wave1 %>%
+surge1_site_summary <- surge1_adult_census %>%
   group_by(CensusSite, CensusDate) %>%
   summarize(Adult_Census = sum(PATIENT_DAY),
             CC_Census = sum(CriticalCareDay, na.rm = TRUE),
@@ -231,7 +229,7 @@ epic_site_adult_census_wave1_summary <- epic_adult_census_wave1 %>%
             .groups = "keep") %>%
   ungroup()
 
-epic_site_adult_census_wave2_summary <- epic_adult_census_wave2 %>%
+surge2_site_summary <- surge2_adult_census %>%
   group_by(CensusSite, CensusDate) %>%
   summarize(Adult_Census = sum(PATIENT_DAY),
             CC_Census = sum(CriticalCareDay, na.rm = TRUE),
@@ -253,7 +251,8 @@ msbi_census_df <- rbind(dp_mar20_df, dp_apr20_df)
 
 # Rename columns and replace NA with 0
 msbi_census_df <- msbi_census_df %>%
-  mutate(CensusDate = as.Date(as.numeric(`Census Date`), origin = "1900-01-01") - 2,
+  mutate(CensusDate = as.Date(as.numeric(`Census Date`),
+                              origin = "1900-01-01") - 2,
          variable = as.character(variable), 
          value = ifelse(is.na(value), 0, value))
 
@@ -261,7 +260,11 @@ msbi_census_df <- msbi_census_df[ , c("CensusDate", "variable", "value")]
 colnames(msbi_census_df) <- c("CensusDate", "Unit", "Census")
 
 # Crosswalk with unit mappings
-msbi_census_df <- left_join(msbi_census_df, diveport_unit_mappings[ , c("MSBI DivePort Units", "Include/Exclude", "Unit Type")], by = c("Unit" = "MSBI DivePort Units"))
+msbi_census_df <- left_join(
+  msbi_census_df,
+  diveport_unit_mappings[
+    , c("MSBI DivePort Units", "Include/Exclude", "Unit Type")],
+  by = c("Unit" = "MSBI DivePort Units"))
 
 # Remove non ICU and med surg units
 msbi_census_df <- msbi_census_df %>%
@@ -277,9 +280,11 @@ msbi_census_summary <- msbi_census_df %>%
             MS_Census = sum(Census[which(`Unit Type` == "M/S")])) %>%
   ungroup()
 
-msbi_census_summary <- msbi_census_summary[ , c("CensusSite", "CensusDate", 
-                                                "Adult_Census", "CC_Census", "MS_Census")]
-
+msbi_census_summary <- msbi_census_summary[ , c("CensusSite",
+                                                "CensusDate",
+                                                "Adult_Census",
+                                                "CC_Census",
+                                                "MS_Census")]
 
 ```
 
@@ -287,10 +292,10 @@ msbi_census_summary <- msbi_census_summary[ , c("CensusSite", "CensusDate",
 ```{r Combine Epic and Diveport data to determine system census}
 
 # Bind together daily census for Epic sites and MSBI
-all_sites_census_wave1 <- rbind(epic_site_adult_census_wave1_summary, msbi_census_summary)
+surge1_all_sites_summary <- rbind(surge1_site_summary, msbi_census_summary)
 
 # Summarize census across all sites to determine system total daily census
-system_census_wave1_summary <- all_sites_census_wave1 %>%
+surge1_system_summary <- surge1_all_sites_summary %>%
   group_by(CensusDate) %>%
   summarize(CensusSite = "MSHS",
             Adult_Census = sum(Adult_Census),
@@ -299,7 +304,7 @@ system_census_wave1_summary <- all_sites_census_wave1 %>%
             .groups = "keep") %>%
   ungroup()
 
-system_census_wave2_summary <- epic_site_adult_census_wave2_summary %>%
+surge2_system_summary <- surge2_site_summary %>%
   group_by(CensusDate) %>%
   summarize(CensusSite = "MSHS",
             Adult_Census = sum(Adult_Census),
@@ -309,27 +314,27 @@ system_census_wave2_summary <- epic_site_adult_census_wave2_summary %>%
   ungroup()
 
 # Reorder columns
-system_census_wave1_summary <-
-  system_census_wave1_summary[, colnames(all_sites_census_wave1)]
+surge1_system_summary <-
+  surge1_system_summary[, colnames(surge1_all_sites_summary)]
 
-system_census_wave2_summary <-
-  system_census_wave2_summary[, colnames(epic_site_adult_census_wave2_summary)]
+surge2_system_summary <-
+  surge2_system_summary[, colnames(surge2_site_summary)]
 
 
 # Bind site and system census together
-site_system_census_wave1_summary <- rbind(all_sites_census_wave1,
-                                          system_census_wave1_summary)
+surge1_site_system_summary <- rbind(surge1_all_sites_summary,
+                                    surge1_system_summary)
 
-site_system_census_wave2_summary <- rbind(epic_site_adult_census_wave2_summary,
-                                          system_census_wave2_summary)
+surge2_site_system_summary <- rbind(surge2_site_summary,
+                                    surge2_system_summary)
 
 # Set census sites as factor for sorting
-site_system_census_wave1_summary <- site_system_census_wave1_summary %>%
+surge1_site_system_summary <- surge1_site_system_summary %>%
   mutate(CensusSite = factor(CensusSite,
                              levels = site_order,
                              ordered = TRUE))
 
-site_system_census_wave2_summary <- site_system_census_wave2_summary %>%
+surge2_site_system_summary <- surge2_site_system_summary %>%
   mutate(CensusSite = factor(CensusSite,
                              levels = site_order,
                              ordered = TRUE))
