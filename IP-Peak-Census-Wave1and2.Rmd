@@ -103,7 +103,7 @@ end1 <- proc.time() - start1
 epic_unit_mappings <- read_xlsx(path = paste0(
   user_directory,
   "/Epic Census Trending/",
-  "Epic-Oracle-Census-Unit-Mappings-2021-03-15.xlsx"),
+  "Epic-Oracle-Census-Unit-Mappings-2021-03-16.xlsx"),
   sheet = "UnitMappings", na = c("", "NA"))
 
 # Manually update unit mappings for MSW 14A to reflect change from Antepartum to
@@ -272,7 +272,7 @@ msbi_census_df <- msbi_census_df %>%
 
 # Summarize census data
 msbi_census_summary <- msbi_census_df %>%
-  filter(CensusDate >= wave1_start_date) %>%
+  filter(CensusDate >= surge1_start_date) %>%
   group_by(CensusDate) %>%
   summarize(CensusSite = "MSBI", 
             Adult_Census = sum(Census),
@@ -344,7 +344,7 @@ surge2_site_system_summary <- surge2_site_system_summary %>%
 ```{r Determine peak census and create kables for wave 1}
 
 # Create dataframe with peak total census, critical care census, and med-surg census
-peak_census_wave1_summary <- site_system_census_wave1_summary %>%
+peak_census_surge1_summary <- surge1_site_system_summary %>%
   group_by(CensusSite) %>%
   summarize(PeakAdultCensusDate = CensusDate[which.max(Adult_Census)], 
             PeakAdultCensus = Adult_Census[which.max(Adult_Census)],
@@ -357,18 +357,18 @@ peak_census_wave1_summary <- site_system_census_wave1_summary %>%
 
 
 # Create kable to visualize results
-peak_census_wave1_kable <- 
-  kable(peak_census_wave1_summary, format = "html", escape = FALSE, align = "c",
+peak_census_surge1_kable <- 
+  kable(peak_census_surge1_summary, format = "html", escape = FALSE, align = "c",
         digits = 0,
         col.names =c("Site",
                      "Date", "Census",
                      "Date", "Census",
                      "Date", "Census"),
         caption = paste0("Peak IP Census During First COVID Surge (",
-                         format(wave1_start_date, "%m/%d/%y"),
+                         format(surge1_start_date, "%m/%d/%y"),
                          " - ",
                          format(
-                           max(site_system_census_wave1_summary$CensusDate),
+                           max(surge1_site_system_summary$CensusDate),
                            "%m/%d/%y"),
                          ")")) %>%
   kable_styling(bootstrap_options = "hover", position = "center",
@@ -385,7 +385,7 @@ peak_census_wave1_kable <-
               # include_thead =  TRUE) %>%
   column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  row_spec(row = nrow(peak_census_wave1_summary),
+  row_spec(row = nrow(peak_census_surge1_summary),
            background = "lightgrey",
            bold = T) %>%
   add_header_above(c(" " = 1,
@@ -400,12 +400,12 @@ peak_census_wave1_kable <-
                    line = FALSE)
 
 # Create dataframe with census on peak COVID day for wave 1
-census_covid_peak_wave1 <- site_system_census_wave1_summary %>%
-  filter(CensusDate == wave1_peak_covid_date) %>%
+surge1_census_covid_peak <- surge1_site_system_summary %>%
+  filter(CensusDate == surge1_peak_covid_date) %>%
   arrange(CensusSite)
 
-census_covid_peak_wave1_kable <-
-  kable(census_covid_peak_wave1, format = "html", escape = FALSE, align = "c",
+surge1_census_covid_peak_kable <-
+  kable(surge1_census_covid_peak, format = "html", escape = FALSE, align = "c",
         digits = 0,
         col.names =c("Site",
                      "Date",
@@ -413,7 +413,7 @@ census_covid_peak_wave1_kable <-
                      "Census",
                      "Census"),
         caption = paste0("IP Census During First Surge COVID Peak On ",
-                         format(wave1_peak_covid_date, "%m/%d/%y"))) %>%
+                         format(surge1_peak_covid_date, "%m/%d/%y"))) %>%
   kable_styling(bootstrap_options = "hover", position = "center",
                 font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1:5), border_right = "thin solid lightgray") %>%
@@ -428,7 +428,7 @@ census_covid_peak_wave1_kable <-
   # include_thead =  TRUE) %>%
   column_spec(column = c(3:5), background = "inherit", color = "inherit") %>%  
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  row_spec(row = nrow(census_covid_peak_wave1), background = "lightgrey",
+  row_spec(row = nrow(surge1_census_covid_peak), background = "lightgrey",
            bold = T) %>%
   add_header_above(c(" " = 2,
                      "Total Adult Census" = 1,
@@ -447,7 +447,7 @@ census_covid_peak_wave1_kable <-
 ```{r Determine peak census and create kables for wave 2}
 
 # Create dataframe with peak total census, critical care census, and med-surg census
-peak_census_wave2_summary <- site_system_census_wave2_summary %>%
+peak_census_surge2_summary <- surge2_site_system_summary %>%
   group_by(CensusSite) %>%
   summarize(PeakAdultCensusDate = CensusDate[which.max(Adult_Census)], 
             PeakAdultCensus = Adult_Census[which.max(Adult_Census)],
@@ -460,18 +460,18 @@ peak_census_wave2_summary <- site_system_census_wave2_summary %>%
 
 
 # Create kable to visualize results
-peak_census_wave2_kable <- 
-  kable(peak_census_wave2_summary, format = "html", escape = FALSE, align = "c",
+peak_census_surge2_kable <- 
+  kable(peak_census_surge2_summary, format = "html", escape = FALSE, align = "c",
         digits = 0,
         col.names =c("Site",
                      "Date", "Census",
                      "Date", "Census",
                      "Date", "Census"),
         caption = paste0("Peak IP Census During Second COVID Surge (",
-                         format(wave2_start_date, "%m/%d/%y"),
+                         format(surge2_start_date, "%m/%d/%y"),
                          " - ",
                          format(
-                           max(site_system_census_wave2_summary$CensusDate),
+                           max(surge2_site_system_summary$CensusDate),
                            "%m/%d/%y"),
                          ")")) %>%
   kable_styling(bootstrap_options = "hover", position = "center",
@@ -488,7 +488,7 @@ peak_census_wave2_kable <-
               # include_thead =  TRUE) %>%
   column_spec(column = c(2:7), background = "inherit", color = "inherit") %>%
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  row_spec(row = nrow(peak_census_wave2_summary),
+  row_spec(row = nrow(peak_census_surge2_summary),
            background = "lightgrey",
            bold = T) %>%
   add_header_above(c(" " = 1,
@@ -503,12 +503,12 @@ peak_census_wave2_kable <-
                    line = FALSE)
 
 # Create dataframe with census on peak COVID day for wave 2
-census_covid_peak_wave2 <- site_system_census_wave2_summary %>%
-  filter(CensusDate == wave2_peak_covid_date) %>%
+surge2_census_covid_peak <- surge2_site_system_summary %>%
+  filter(CensusDate == surge2_peak_covid_date) %>%
   arrange(CensusSite)
 
-census_covid_peak_wave2_kable <-
-  kable(census_covid_peak_wave2, format = "html", escape = FALSE, align = "c",
+surge2_census_covid_peak_kable <-
+  kable(surge2_census_covid_peak, format = "html", escape = FALSE, align = "c",
         digits = 0,
         col.names =c("Site",
                      "Date",
@@ -516,7 +516,7 @@ census_covid_peak_wave2_kable <-
                      "Census",
                      "Census"),
         caption = paste0("IP Census During Second Surge COVID Peak On ",
-                         format(wave2_peak_covid_date, "%m/%d/%y"))) %>%
+                         format(surge2_peak_covid_date, "%m/%d/%y"))) %>%
   kable_styling(bootstrap_options = "hover", position = "center",
                 font_size = 11, full_width = FALSE) %>%
   column_spec(column = c(1:5), border_right = "thin solid lightgray") %>%
@@ -531,7 +531,7 @@ census_covid_peak_wave2_kable <-
   # include_thead =  TRUE) %>%
   column_spec(column = c(3:5), background = "inherit", color = "inherit") %>%  
   # row_spec(row = 0, background = "#221f72", color = "white") %>%
-  row_spec(row = nrow(census_covid_peak_wave2), background = "lightgrey",
+  row_spec(row = nrow(surge2_census_covid_peak), background = "lightgrey",
            bold = T) %>%
   add_header_above(c(" " = 2,
                      "Total Adult Census" = 1,
@@ -547,8 +547,6 @@ census_covid_peak_wave2_kable <-
 ```
 
 
-
-
 ```{r Create a kable with Epic unit mappings for reference}
 
 unit_rollup_order <- c("ICU", "Med Surg", "COVID Surge",
@@ -561,19 +559,14 @@ unit_rollup_order <- c("ICU", "Med Surg", "COVID Surge",
 # Create a dataframe with unit mappings
 epic_unit_mappings_reference <- epic_unit_mappings %>%
   # filter(CensusSite != "MSBI") %>%
-  select(CensusSite, UnitRollUp, CENSUS_DEPT)
-
-epic_unit_mappings_reference$CensusSite <- factor(epic_unit_mappings_reference$CensusSite,
-                                             levels = site_order,
-                                             ordered = TRUE)
-
-epic_unit_mappings_reference$UnitRollUp <- factor(epic_unit_mappings_reference$UnitRollUp,
-                                             levels = unit_rollup_order, 
-                                             ordered = TRUE)
-
-epic_unit_mappings_reference <- epic_unit_mappings_reference %>%
+  select(CensusSite, UnitRollUp, CENSUS_DEPT) %>%
+  mutate(CensusSite = factor(CensusSite,
+                             levels = site_order,
+                             ordered = TRUE),
+         UnitRollUp = factor(UnitRollUp,
+                             levels = unit_rollup_order,
+                             ordered = TRUE)) %>%
   arrange(CensusSite, UnitRollUp)
-
 
 epic_unit_mappings_kable <- 
   kable(epic_unit_mappings_reference, format = "html", escape = FALSE,
@@ -601,13 +594,13 @@ dp_unit_mappings_reference <- diveport_unit_mappings %>%
 
 colnames(dp_unit_mappings_reference) <- c("UnitName", "UnitType", "InclExcl")
 
-dp_unit_mappings_reference$InclExcl <- factor(dp_unit_mappings_reference$InclExcl, 
-                                                       levels = dp_criteria, ordered = TRUE)
-
-dp_unit_mappings_reference$UnitType <- factor(dp_unit_mappings_reference$UnitType,
-                                              levels = dp_unit_types, ordered = TRUE)
-
 dp_unit_mappings_reference <- dp_unit_mappings_reference %>%
+  mutate(InclExcl = factor(InclExcl,
+                           levels = dp_criteria,
+                           ordered = TRUE),
+         UnitType = factor(UnitType,
+                           levels = dp_unit_types,
+                           ordered = TRUE)) %>%
   arrange(UnitType, InclExcl)
 
 dp_unit_mappings_kable <-
@@ -630,18 +623,18 @@ dp_unit_mappings_kable <-
 ### First Surge Census Results
 ```{r Display census results for wave 1}
 
-peak_census_wave1_kable
+peak_census_surge1_kable
 
-census_covid_peak_wave1_kable 
+surge1_census_covid_peak_kable 
 
 ```
 
 ### Second Surge Census Results
 ```{r Display census results for wave 2}
 
-peak_census_wave2_kable
+peak_census_surge2_kable
 
-census_covid_peak_wave2_kable 
+surge2_census_covid_peak_kable 
 
 ```
 
@@ -649,16 +642,16 @@ census_covid_peak_wave2_kable
 <h4><b>Data Sources:</b></h4>
 
 1. Epic Sites: Analysis based on Epic midnight census data. Data obtained from Oracle database table "EMR_EMR_ALL_PAT_DAYS_MSX" pulled on `r Sys.Date()`.
-2. MSBI: Analysis based on DivePort midnight census data for March and April 2020. Data pulled on 08/27/2020.
+2. MSBI: First surge analysis based on DivePort midnight census data for March and April 2020. Data pulled on 08/27/2020. Second surge analysis based on Epic data above.
 <h4></h4></br>
 
   
 <h4><b>Analysis Assumptions:</b></h4>
 
-1. COVID Surge Start Date: Analysis assumes a start date of 3/16/20.
+1. COVID Surge Start Date: Analysis assumes first surge start date of 3/16/20 and second surge start date of 12/1/20.
 2. Epic Sites Critical Care Classifications:
     + For sites other than MSQ, ICU patients are identified as those with Accommodation Code of Intensive Care or Coronary Care
-    + For MSQ, any patient in unit MSQ 6 ICU is classified as a critical care patient. Any patient in MSQ 6 IMCU and MSQ 5 East starting on 3/28/20 is also classified as a critical care patient.
+    + For MSQ, any patient in unit MSQ 6 ICU is classified as a critical care patient. For first surge, any patient in MSQ 6 IMCU and MSQ 5 East starting on 3/28/20 is also classified as a critical care patient. For second surge, any patient in MSQ 6 IMCU is also considered critical care. 
     + For all sites, any patient with a vent but not in an ICU is classified as a critical care patient.
 3. MSBI ICU Classifications based on unit's primary use during COVID surge. See reference table below.
 <h4></h4></br>
